@@ -70,7 +70,7 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 
 ## Milestones (update the status here as they land)
 
-- [ ] M1 Native build from source on `wasm` branch; `goalc-test` passes.
+- [x] M1 Native build from source on `wasm` branch; `goalc-test` passes.
 - [ ] M2 `do_codegen_wasm` validated on compiler tests (`test/goalc/`, `test/goalc/test_CodeTester.cpp`
       pattern) executed in Node. No game data needed.
 - [ ] M3 Headless runtime under Emscripten (GL and audio stubbed) boots until `KERNEL.CGO` is linked
@@ -89,3 +89,6 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - Note new decisions and gotchas at the bottom of this file under "Log", one line each.
 
 ## Log
+
+- 2026-10-17: Checkout dir must be named `jak-project` — `try_get_project_path_from_path` (common/util/FileUtil.cpp) does `rfind("jak-project")`, so `jak-project-browser/` makes goalc-test abort at startup.
+- 2026-10-17: M1 done — `Release-linux-clang` builds to `build/Release/bin`; run `build/Release/bin/goalc-test --gtest_filter=-*MANUAL_TEST*` (root `test.sh` expects `build/goalc-test`). 1669/1669 pass.
