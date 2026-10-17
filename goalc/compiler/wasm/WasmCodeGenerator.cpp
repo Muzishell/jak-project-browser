@@ -328,7 +328,8 @@ WasmModuleGen::WasmModuleGen(GameVersion version)
     : m_version(version), m_module(BinaryenModuleCreate()) {
   BinaryenModuleSetFeatures(m_module, BinaryenFeatureMVP() | BinaryenFeatureMutableGlobals() |
                                           BinaryenFeatureSignExt() | BinaryenFeatureSIMD128() |
-                                          BinaryenFeatureBulkMemory());
+                                          BinaryenFeatureBulkMemory() |
+                                          BinaryenFeatureNontrappingFPToInt());
 
   BinaryenType params[kGoalArgCount];
   for (auto& p : params) {
@@ -403,8 +404,11 @@ WasmObject WasmModuleGen::run(FileEnv* env, const TypeSystem* ts) {
     static_obj->generate(&obj_gen);
   }
   for (int i = 0; i < int(functions.size()); i++) {
-    obj_gen.add_instr_no_ir(records[i], emitter::InstructionARM64(u32(i)),
-                            InstructionInfo::Kind::IR);
+    // two words: a lone zero word is InstructionARM64's null instruction and would emit nothing
+    obj_gen.add_instr_no_ir(
+        records[i],
+        emitter::InstructionARM64(emitter::InstructionARM64(u32(i)), emitter::InstructionARM64(0)),
+        InstructionInfo::Kind::IR);
   }
   out.object = obj_gen.generate_data_v3(ts).to_vector();
   for (auto& rec : records) {

@@ -4,8 +4,8 @@
  * @file WasmCodeGenerator.h
  * WebAssembly backend (OPENGOAL_WASM_BACKEND only). Turns a colored FileEnv into a pair:
  *  - a normal v3 GOAL object file with the static data, linked exactly like x86 objects.
- *    Each function's "code" is a 4-byte slot after its "function" type tag holding the
- *    function's index in this file; the linker adds table_base to the word after every
+ *    Each function's "code" is an 8-byte slot after its "function" type tag: the function's
+ *    u32 index in this file, then a zero word. The linker adds table_base to the word after every
  *    "function" type pointer link. So a function value is still the address after the tag.
  *  - a wasm module with the code, which finds the data through the segment base imports.
  *

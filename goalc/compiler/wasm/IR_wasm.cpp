@@ -22,22 +22,34 @@ bool is_gpr(const RegVal* rv) {
   return rv->ireg().reg_class == RegClass::GPR_64;
 }
 
+bool is_float(const RegVal* rv) {
+  return rv->ireg().reg_class == RegClass::FLOAT;
+}
+
 [[noreturn]] void unsupported(IR* ir) {
   throw std::runtime_error("wasm backend does not support IR: " + ir->print());
 }
 
+BinaryenExpressionRef unary(WasmFunctionGen* gen, BinaryenOp op, BinaryenExpressionRef value) {
+  return BinaryenUnary(gen->module(), op, value);
+}
+
 void regset_common(WasmFunctionGen* gen, IR* ir, const RegVal* dst, const RegVal* src) {
-  if (is_gpr(dst) && is_gpr(src)) {
+  auto same_class = dst->ireg().reg_class == src->ireg().reg_class;
+  if (same_class && (is_gpr(dst) || is_float(dst))) {
     if (gen->get_reg(dst) != gen->get_reg(src)) {
       gen->emit(gen->set(dst, gen->get(src)));
     }
+  } else if (is_float(src) && is_gpr(dst)) {
+    // movd, then sign extend like x86
+    gen->emit(gen->set(dst, unary(gen, BinaryenExtendSInt32(),
+                                  unary(gen, BinaryenReinterpretFloat32(), gen->get(src)))));
+  } else if (is_gpr(src) && is_float(dst)) {
+    // movd: the low 32 bits
+    gen->emit(gen->set(dst, unary(gen, BinaryenReinterpretInt32(), gen->wrap(gen->get(src)))));
   } else {
     unsupported(ir);
   }
-}
-
-BinaryenExpressionRef unary(WasmFunctionGen* gen, BinaryenOp op, BinaryenExpressionRef value) {
-  return BinaryenUnary(gen->module(), op, value);
 }
 
 BinaryenExpressionRef binary(WasmFunctionGen* gen,
@@ -226,7 +238,38 @@ void IR_GotoLabel::do_codegen_wasm(WasmFunctionGen* gen) {
 }
 
 void IR_ConditionalBranch::do_codegen_wasm(WasmFunctionGen* gen) {
-  if (condition.is_float || !is_gpr(condition.a) || !is_gpr(condition.b)) {
+  if (condition.is_float) {
+    // comiss + jb/jbe/ja/jae on x86. Ordered compares here: they differ from x86 only for NaN.
+    if (!is_float(condition.a) || !is_float(condition.b)) {
+      unsupported(this);
+    }
+    BinaryenOp op;
+    switch (condition.kind) {
+      case ConditionKind::EQUAL:
+        op = BinaryenEqFloat32();
+        break;
+      case ConditionKind::NOT_EQUAL:
+        op = BinaryenNeFloat32();
+        break;
+      case ConditionKind::LEQ:
+        op = BinaryenLeFloat32();
+        break;
+      case ConditionKind::GEQ:
+        op = BinaryenGeFloat32();
+        break;
+      case ConditionKind::LT:
+        op = BinaryenLtFloat32();
+        break;
+      case ConditionKind::GT:
+        op = BinaryenGtFloat32();
+        break;
+      default:
+        unsupported(this);
+    }
+    gen->set_branch_condition(binary(gen, op, gen->get(condition.a), gen->get(condition.b)));
+    return;
+  }
+  if (!is_gpr(condition.a) || !is_gpr(condition.b)) {
     unsupported(this);
   }
   const bool s = condition.is_signed;
@@ -256,6 +299,82 @@ void IR_ConditionalBranch::do_codegen_wasm(WasmFunctionGen* gen) {
   gen->set_branch_condition(binary(gen, op, gen->get(condition.a), gen->get(condition.b)));
 }
 
+void IR_FloatMath::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_float(m_dest) || !is_float(m_arg)) {
+    unsupported(this);
+  }
+  BinaryenExpressionRef result = nullptr;
+  switch (m_kind) {
+    case FloatMathKind::ADD_SS:
+      result = binary(gen, BinaryenAddFloat32(), gen->get(m_dest), gen->get(m_arg));
+      break;
+    case FloatMathKind::SUB_SS:
+      result = binary(gen, BinaryenSubFloat32(), gen->get(m_dest), gen->get(m_arg));
+      break;
+    case FloatMathKind::MUL_SS:
+      result = binary(gen, BinaryenMulFloat32(), gen->get(m_dest), gen->get(m_arg));
+      break;
+    case FloatMathKind::DIV_SS:
+      result = binary(gen, BinaryenDivFloat32(), gen->get(m_dest), gen->get(m_arg));
+      break;
+    // maxss/minss return the second operand unless the first is strictly greater/less,
+    // which is not what f32.max/f32.min do for NaN and signed zeros
+    case FloatMathKind::MAX_SS:
+      result = BinaryenSelect(gen->module(),
+                              binary(gen, BinaryenGtFloat32(), gen->get(m_dest), gen->get(m_arg)),
+                              gen->get(m_dest), gen->get(m_arg));
+      break;
+    case FloatMathKind::MIN_SS:
+      result = BinaryenSelect(gen->module(),
+                              binary(gen, BinaryenLtFloat32(), gen->get(m_dest), gen->get(m_arg)),
+                              gen->get(m_dest), gen->get(m_arg));
+      break;
+    case FloatMathKind::SQRT_SS:
+      result = unary(gen, BinaryenSqrtFloat32(), gen->get(m_arg));
+      break;
+    default:
+      unsupported(this);
+  }
+  gen->emit(gen->set(m_dest, result));
+}
+
+void IR_StaticVarLoad::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_float(m_dest)) {
+    unsupported(this);
+  }
+  auto load_info = m_src->get_load_info();
+  ASSERT(m_src->get_addr_offset() == 0);
+  ASSERT(!load_info.load_signed && load_info.load_size == 4 && load_info.requires_load);
+  gen->emit(gen->set(m_dest, BinaryenLoad(gen->module(), 4, false, 0, 0, BinaryenTypeFloat32(),
+                                          gen->ee_addr(gen->static_addr(m_src)), "memory")));
+}
+
+void IR_FloatToInt::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_gpr(m_dest) || !is_float(m_src)) {
+    unsupported(this);
+  }
+  // cvttss2si gives 0x80000000 for NaN and out of range values, then x86 sign extends
+  auto* mod = gen->module();
+  auto in_range = binary(gen, BinaryenAndInt32(),
+                         binary(gen, BinaryenGeFloat32(), gen->get(m_src),
+                                BinaryenConst(mod, BinaryenLiteralFloat32(-2147483648.0f))),
+                         binary(gen, BinaryenLtFloat32(), gen->get(m_src),
+                                BinaryenConst(mod, BinaryenLiteralFloat32(2147483648.0f))));
+  auto truncated =
+      BinaryenSelect(mod, in_range, unary(gen, BinaryenTruncSatSFloat32ToInt32(), gen->get(m_src)),
+                     gen->i32(INT32_MIN));
+  gen->emit(gen->set(m_dest, unary(gen, BinaryenExtendSInt32(), truncated)));
+}
+
+void IR_IntToFloat::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_float(m_dest) || !is_gpr(m_src)) {
+    unsupported(this);
+  }
+  // cvtsi2ss from the low 32 bits
+  gen->emit(
+      gen->set(m_dest, unary(gen, BinaryenConvertSInt32ToFloat32(), gen->wrap(gen->get(m_src)))));
+}
+
 void IR_Null::do_codegen_wasm(WasmFunctionGen* gen) {
   (void)gen;
 }
@@ -269,7 +388,17 @@ void IR_Nop::do_codegen_wasm(WasmFunctionGen* gen) {
 }
 
 void IR_LoadConstOffset::do_codegen_wasm(WasmFunctionGen* gen) {
-  if (!is_gpr(m_dest) || !is_gpr(m_base)) {
+  if (!is_gpr(m_base)) {
+    unsupported(this);
+  }
+  if (is_float(m_dest) && m_info.size == 4 && !m_info.sign_extend &&
+      m_info.reg == RegClass::FLOAT) {
+    gen->emit(gen->set(
+        m_dest, BinaryenLoad(gen->module(), 4, false, 0, 0, BinaryenTypeFloat32(),
+                             gen->ee_addr(gen->wrap(gen->get(m_base)), m_offset), "memory")));
+    return;
+  }
+  if (!is_gpr(m_dest)) {
     unsupported(this);
   }
   int size = m_info.size;
@@ -283,7 +412,16 @@ void IR_LoadConstOffset::do_codegen_wasm(WasmFunctionGen* gen) {
 }
 
 void IR_StoreConstOffset::do_codegen_wasm(WasmFunctionGen* gen) {
-  if (!is_gpr(m_value) || !is_gpr(m_base)) {
+  if (!is_gpr(m_base)) {
+    unsupported(this);
+  }
+  if (is_float(m_value) && m_size == 4) {
+    gen->emit(BinaryenStore(gen->module(), 4, 0, 0,
+                            gen->ee_addr(gen->wrap(gen->get(m_base)), m_offset), gen->get(m_value),
+                            BinaryenTypeFloat32(), "memory"));
+    return;
+  }
+  if (!is_gpr(m_value)) {
     unsupported(this);
   }
   if (m_size != 1 && m_size != 2 && m_size != 4 && m_size != 8) {

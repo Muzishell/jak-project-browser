@@ -220,6 +220,7 @@ class IR_StaticVarAddr : public IR {
 class IR_StaticVarLoad : public IR {
  public:
   IR_StaticVarLoad(const RegVal* dest, const StaticObject* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -307,6 +308,7 @@ enum class FloatMathKind { DIV_SS, MUL_SS, ADD_SS, SUB_SS, MIN_SS, MAX_SS, SQRT_
 class IR_FloatMath : public IR {
  public:
   IR_FloatMath(FloatMathKind kind, RegVal* dest, RegVal* arg);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -410,6 +412,7 @@ class IR_ValueReset : public IR {
 class IR_FloatToInt : public IR {
  public:
   IR_FloatToInt(const RegVal* dest, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -427,6 +430,7 @@ class IR_FloatToInt : public IR {
 class IR_IntToFloat : public IR {
  public:
   IR_IntToFloat(const RegVal* dest, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,

@@ -120,6 +120,31 @@ TEST_F(WasmArithmeticTests, Multiplication2) {
   run("multiply64.static.gc", {"93270638141856400\n"});
 }
 
+TEST_F(WasmArithmeticTests, Constants) {
+  run("float.static.gc", {"1067316150\n"});
+  run("function-return-float-constant.static.gc", {"3.14149\n0\n"});
+}
+
+TEST_F(WasmArithmeticTests, Operations) {
+  run("float-pow.static.gc", {"256\n0\n"});
+  run("float-product.static.gc", {"120.0000\n0\n"});
+}
+
+TEST_F(WasmArithmeticTests, Symbols) {
+  run("float-in-symbol.static.gc", {"2345.6000\n0\n"});
+}
+
+TEST_F(WasmArithmeticTests, Functions) {
+  run("float-function.static.gc", {"10.152\n0\n"});
+  run("nested-float-functions.static.gc",
+      {"i 1.4400 3.4000\nr 10.1523\ni 1.2000 10.1523\nr 17.5432\n17.543 10.152\n0\n"});
+}
+
+TEST_F(WasmArithmeticTests, MinMax) {
+  run("float-max.static.gc", {"3.70\n0\n"});
+  run("float-min.static.gc", {"-1.20\n0\n"});
+}
+
 TEST_F(WasmArithmeticTests, LogicalOperators) {
   run("logand.static.gc", {"4\n"});
   run("logior.static.gc", {"60\n"});

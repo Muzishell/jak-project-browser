@@ -120,6 +120,49 @@ function makeGoalString(text) {
 const asSigned = (v) => BigInt.asIntN(64, v);
 const asUnsigned = (v) => BigInt.asUintN(64, v);
 
+// a float argument is the low 32 bits of the register
+const f32Bits = new Float32Array(1);
+const f32BitsU = new Uint32Array(f32Bits.buffer);
+function asFloat(v) {
+  f32BitsU[0] = Number(asUnsigned(v) & 0xffffffffn);
+  return f32Bits[0];
+}
+
+// cvt_float in game/kernel/common/kprint.cpp: single precision, digit by digit, no rounding
+function cvtFloat(x, precision) {
+  const f = Math.fround;
+  let abs = f(x);
+  let lead = "";
+  if (abs < 0) {
+    abs = f(-abs);
+    lead = "-";
+  }
+  if (Number.isNaN(abs)) return "NaN";
+  let integerPart = Math.trunc(abs);
+  let fractionPart = f(abs - integerPart);
+  let digits = "";
+  while (integerPart !== 0) {
+    const scaled = f(integerPart / 10);
+    integerPart = Math.trunc(scaled);
+    const rounder = f(f(f(scaled - integerPart) * 10) + 0.5);
+    digits = String.fromCharCode(48 + Math.trunc(rounder)) + digits;
+  }
+  if (!digits) digits = "0";
+  if (precision) digits += ".";
+  let prec = precision;
+  if (fractionPart !== 0 && precision) {
+    do {
+      const scaled = f(fractionPart * 10);
+      const nextInt = Math.trunc(scaled);
+      fractionPart = f(scaled - nextInt);
+      digits += String.fromCharCode(48 + nextInt);
+      prec--;
+    } while (prec && fractionPart !== 0);
+  }
+  while (prec-- > 0) digits += "0";
+  return lead + digits;
+}
+
 // subset of kernel format (game/kernel/common/kprint.cpp) used by the compiler tests
 function format(dest, fmt, ...rest) {
   const text = goalString(Number(asUnsigned(fmt) & 0xffffffffn));
@@ -135,8 +178,16 @@ function format(dest, fmt, ...rest) {
     let j = i + 1;
     while (j < text.length && /[0-9,'+-]/.test(text[j])) j++;
     const directive = text[j];
+    const params = text.slice(i + 1, j).split(",");
     i = j;
     switch (directive) {
+      case "f":
+      case "F": {
+        const precision = params[2] ? parseInt(params[2], 10) : 4;
+        const width = params[0] ? parseInt(params[0], 10) : 0;
+        out += cvtFloat(asFloat(values[arg++]), precision).padStart(width, " ");
+        break;
+      }
       case "%":
         out += "\n";
         break;

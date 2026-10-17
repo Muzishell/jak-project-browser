@@ -144,6 +144,17 @@ TEST_F(WasmCodegen, CallThroughSymbol) {
 }
 
 TEST_F(WasmCodegen, UnsupportedIrIsAnError) {
-  // floats are not in the wasm backend yet
-  EXPECT_ANY_THROW(compile("(+ 1.0 2.0)", "wasm-float"));
+  // asm functions drive the hardware stack and registers directly; not supported in wasm
+  EXPECT_ANY_THROW(
+      compile("(defun wasm-asm-test () (declare (asm-func none)) (.ret))", "wasm-asm-func"));
+}
+
+TEST_F(WasmCodegen, FloatMath) {
+  std::string text;
+  compile(
+      "(defun wasm-float-test ((a float) (b float)) (+ (* a b) (fmax a b) (fmin a b))) "
+      "(wasm-float-test 1.5 2.0)",
+      "wasm-float", &text);
+  EXPECT_NE(text.find("f32.mul"), std::string::npos) << text;
+  EXPECT_NE(text.find("select"), std::string::npos) << text;
 }
