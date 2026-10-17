@@ -16,6 +16,10 @@
  *  - global "st": i32 GOAL address of the symbol table (the x86 st register, r14).
  *  - globals "seg_main", "seg_debug", "seg_top": i32 GOAL address the linker put each segment
  *    of the object file at (only the ones the code refers to are imported).
+ *  - mutable global "sp": i32 GOAL address of the top of the shadow stack (grows down), imported
+ *    only by functions with stack variables. Their frame has the x86 layout: 8-byte slots for
+ *    spills and stack variables. Spills of address-taken variables live there, other spills
+ *    are locals.
  *  - module "sym", global "<name>": i32 offset of symbol <name> from st, one per symbol used.
  *  - every GOAL function has type (i64 x 8) -> i64. The parameters are the GPR argument registers
  *    (rdi rsi rdx rcx r8 r9 r10 r11) and the result is rax.
@@ -25,6 +29,7 @@
  */
 
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -83,6 +88,8 @@ class WasmFunctionGen {
   BinaryenExpressionRef function_addr(int idx_in_file);
   //! GOAL address (i32) of a static object of this file.
   BinaryenExpressionRef static_addr(const StaticObject* obj);
+  //! GOAL address (i32) of a byte offset in this function's stack frame.
+  BinaryenExpressionRef frame_addr(int byte_offset);
 
   BinaryenExpressionRef i32(s32 value);
   BinaryenExpressionRef i64(s64 value);
@@ -116,6 +123,9 @@ class WasmFunctionGen {
   int m_ir_idx = -1;
   std::vector<Block> m_blocks;
   int m_current_block = -1;
+  int m_frame_size = 0;  // bytes on the shadow stack, 0 for no frame
+  BinaryenIndex m_frame_local = 0;
+  std::set<int> m_memory_spill_slots;                           // spill slots in the frame
   std::vector<BinaryenType> m_vars;                             // locals after the parameters
   std::map<std::pair<int, int>, BinaryenIndex> m_reg_locals;    // (reg id, class) -> local
   std::map<std::pair<int, int>, BinaryenIndex> m_spill_locals;  // (slot, class) -> local
@@ -141,6 +151,8 @@ class WasmModuleGen {
   const char* symbol_global(const std::string& name);
   //! Name of the imported global holding a segment's base address (added on first use).
   const char* segment_global(int seg);
+  //! Name of the imported mutable shadow stack pointer global (added on first use).
+  const char* stack_pointer_global();
   //! Where a function / static object is in the object file: (segment, offset in segment).
   std::pair<int, int> function_location(int idx_in_file) const;
   std::pair<int, int> static_location(const StaticObject* obj) const;
@@ -153,6 +165,7 @@ class WasmModuleGen {
   BinaryenType m_goal_params;
   std::map<std::string, std::string> m_symbol_globals;
   std::map<int, bool> m_segment_globals;
+  bool m_stack_pointer_global = false;
   std::vector<std::pair<int, int>> m_function_locations;
   std::map<const StaticObject*, std::pair<int, int>> m_static_locations;
 };

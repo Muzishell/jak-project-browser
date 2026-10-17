@@ -185,6 +185,7 @@ class IR_FunctionCall : public IR {
 class IR_RegValAddr : public IR {
  public:
   IR_RegValAddr(const RegVal* dest, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -448,6 +449,7 @@ class IR_IntToFloat : public IR {
 class IR_GetStackAddr : public IR {
  public:
   IR_GetStackAddr(const RegVal* dest, int slot);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -688,6 +690,7 @@ class IR_JumpReg : public IR_Asm {
 class IR_RegSetAsm : public IR_Asm {
  public:
   IR_RegSetAsm(bool use_color, const RegVal* dst, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -705,6 +708,7 @@ class IR_RegSetAsm : public IR_Asm {
 class IR_VFMath3Asm : public IR_Asm {
  public:
   enum class Kind { XOR, SUB, ADD, MUL, MAX, MIN, DIV };
+  IR_WASM_CODEGEN
   IR_VFMath3Asm(bool use_color,
                 const RegVal* dst,
                 const RegVal* src1,
@@ -751,6 +755,7 @@ class IR_Int128Math3Asm : public IR_Asm {
     PACKUSWB,
     PADDB,
   };
+  IR_WASM_CODEGEN
   IR_Int128Math3Asm(bool use_color,
                     const RegVal* dst,
                     const RegVal* src1,
@@ -775,6 +780,7 @@ class IR_Int128Math3Asm : public IR_Asm {
 class IR_Int128Math2Asm : public IR_Asm {
  public:
   enum class Kind { PW_SLL, PW_SRL, PH_SLL, PH_SRL, PW_SRA, VPSRLDQ, VPSLLDQ, VPSHUFLW, VPSHUFHW };
+  IR_WASM_CODEGEN
   IR_Int128Math2Asm(bool use_color,
                     const RegVal* dst,
                     const RegVal* src,
@@ -799,6 +805,7 @@ class IR_Int128Math2Asm : public IR_Asm {
 class IR_VFMath2Asm : public IR_Asm {
  public:
   enum class Kind { ITOF, FTOI };
+  IR_WASM_CODEGEN
   IR_VFMath2Asm(bool use_color, const RegVal* dst, const RegVal* src, Kind kind);
   std::string print() override;
   RegAllocInstr to_rai() override;
@@ -817,6 +824,7 @@ class IR_VFMath2Asm : public IR_Asm {
 
 class IR_BlendVF : public IR_Asm {
  public:
+  IR_WASM_CODEGEN
   IR_BlendVF(bool use_color, const RegVal* dst, const RegVal* src1, const RegVal* src2, u8 mask);
   std::string print() override;
   RegAllocInstr to_rai() override;
@@ -836,6 +844,7 @@ class IR_BlendVF : public IR_Asm {
 
 class IR_SplatVF : public IR_Asm {
  public:
+  IR_WASM_CODEGEN
   IR_SplatVF(bool use_color,
              const RegVal* dst,
              const RegVal* src,
@@ -857,6 +866,7 @@ class IR_SplatVF : public IR_Asm {
 
 class IR_SwizzleVF : public IR_Asm {
  public:
+  IR_WASM_CODEGEN
   IR_SwizzleVF(bool use_color, const RegVal* dst, const RegVal* src, const u8 m_controlBytes);
   std::string print() override;
   RegAllocInstr to_rai() override;
@@ -875,6 +885,7 @@ class IR_SwizzleVF : public IR_Asm {
 
 class IR_SqrtVF : public IR_Asm {
  public:
+  IR_WASM_CODEGEN
   IR_SqrtVF(bool use_color, const RegVal* dst, const RegVal* src);
   std::string print() override;
   RegAllocInstr to_rai() override;

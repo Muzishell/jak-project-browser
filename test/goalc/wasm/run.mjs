@@ -35,7 +35,9 @@ const dv = () => new DataView(memory.buffer);
 const r32 = (addr) => dv().getUint32(EE_BASE + addr, true);
 const w32 = (addr, v) => dv().setUint32(EE_BASE + addr, v >>> 0, true);
 
-let heapTop = 0x400000; // below this: symbol table
+let heapTop = 0x400000; // below this: symbol table and the stack
+// shadow stack for functions with stack variables, grows down from just below the heap
+const stackPointer = new WebAssembly.Global({ value: "i32", mutable: true }, 0x3f0000);
 function alloc(size, align = 16) {
   heapTop = Math.ceil(heapTop / align) * align;
   const addr = heapTop;
@@ -163,6 +165,16 @@ function cvtFloat(x, precision) {
   return lead + digits;
 }
 
+// the parts of the kernel's print the compiler tests need: symbols and strings
+function printObject(value) {
+  const addr = Number(asUnsigned(value) & 0xffffffffn);
+  for (const [name, offset] of symbolOffsets) {
+    if (addr === ST + offset) return name;
+  }
+  if (addr >= 4 && r32(addr - 4) === types.get("string")) return goalString(addr);
+  throw new Error(`print: can't print 0x${addr.toString(16)} in the wasm test runtime`);
+}
+
 // subset of kernel format (game/kernel/common/kprint.cpp) used by the compiler tests
 function format(dest, fmt, ...rest) {
   const text = goalString(Number(asUnsigned(fmt) & 0xffffffffn));
@@ -197,6 +209,10 @@ function format(dest, fmt, ...rest) {
       case "D":
       case "d":
         out += asSigned(values[arg++]).toString(10);
+        break;
+      case "A":
+      case "a":
+        out += printObject(values[arg++]);
         break;
       case "X":
       case "x":
@@ -304,7 +320,8 @@ function runFile(objectPath, wasmPath) {
   const module = new WebAssembly.Module(fs.readFileSync(wasmPath));
   const { segBase, tableBase } = link(objectBytes);
 
-  const env = { memory, table, ee_base: i32(EE_BASE), st: i32(ST), table_base: i32(tableBase) };
+  const env = { memory, table, ee_base: i32(EE_BASE), st: i32(ST), table_base: i32(tableBase),
+                sp: stackPointer };
   SEG_NAMES.forEach((name, seg) => (env[name] = i32(segBase[seg])));
   const sym = {};
   for (const imp of WebAssembly.Module.imports(module)) {

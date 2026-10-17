@@ -27,7 +27,8 @@ set(GOALC_TEST_FRAMEWORK_SOURCES
 if (OPENGOAL_WASM_BACKEND)
     list(APPEND GOALC_TEST_CASES
         ${CMAKE_CURRENT_LIST_DIR}/test_wasm_backend.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_arithmetic.cpp)
+        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_arithmetic.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_vs_native.cpp)
     list(APPEND GOALC_TEST_FRAMEWORK_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/framework/wasm_test_runner.cpp
         ${CMAKE_CURRENT_LIST_DIR}/framework/wasm_test_runner.h)

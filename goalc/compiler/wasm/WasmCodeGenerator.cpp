@@ -196,9 +196,45 @@ void WasmFunctionGen::set_branch_condition(BinaryenExpressionRef condition) {
   m_blocks.at(m_current_block).branch_condition = condition;
 }
 
+BinaryenExpressionRef WasmFunctionGen::frame_addr(int byte_offset) {
+  ASSERT(m_frame_size > 0 && byte_offset >= 0 && byte_offset < m_frame_size);
+  return BinaryenBinary(module(), BinaryenAddInt32(),
+                        BinaryenLocalGet(module(), m_frame_local, BinaryenTypeInt32()),
+                        i32(byte_offset));
+}
+
+namespace {
+//! Memory width of a spilled value, as on x86 (FLOAT moves 32 bits of its 8-byte slot).
+int spill_bytes(RegClass reg_class) {
+  switch (reg_class) {
+    case RegClass::GPR_64:
+      return 8;
+    case RegClass::FLOAT:
+      return 4;
+    default:
+      return 16;
+  }
+}
+}  // namespace
+
 void WasmFunctionGen::emit_spill_ops(int ir_idx, bool loads) {
   for (const auto& op : m_allocs.stack_ops.at(ir_idx).ops) {
     auto type = wasm_type(op.reg_class);
+    if (m_memory_spill_slots.count(op.slot)) {
+      // address-taken variable: its value lives in the frame
+      auto offset = m_allocs.get_slot_for_spill(op.slot) * emitter::GPR_SIZE;
+      auto bytes = spill_bytes(op.reg_class);
+      if (loads && op.load) {
+        emit(set_reg_value(op.reg, op.reg_class,
+                           BinaryenLoad(module(), bytes, false, 0, 0, type,
+                                        ee_addr(frame_addr(offset)), "memory")));
+      }
+      if (!loads && op.store) {
+        emit(BinaryenStore(module(), bytes, 0, 0, ee_addr(frame_addr(offset)),
+                           get_reg_value(op.reg, op.reg_class), type, "memory"));
+      }
+      continue;
+    }
     if (loads && op.load) {
       emit(set_reg_value(op.reg, op.reg_class,
                          BinaryenLocalGet(module(), spill_local(op.slot, op.reg_class), type)));
@@ -224,9 +260,18 @@ void WasmFunctionGen::build() {
     throw std::runtime_error(
         fmt::format("wasm backend does not support asm function {}", m_env->name()));
   }
-  if (m_allocs.stack_slots_for_vars) {
-    throw std::runtime_error(
-        fmt::format("wasm backend does not support stack variables yet ({})", m_env->name()));
+  // address-taken variables are spilled to memory so their address means something
+  for (auto& rv : m_env->reg_vals()) {
+    if (rv->forced_on_stack()) {
+      m_memory_spill_slots.insert(m_allocs.ass_as_ranges.at(rv->ireg().id).stack_slot());
+    }
+  }
+  if (m_allocs.stack_slots_for_vars || !m_memory_spill_slots.empty()) {
+    // same frame layout as x86: spill slots and stack variable slots, 16-byte aligned
+    m_frame_size =
+        emitter::GPR_SIZE * (m_allocs.stack_slots_for_spills + m_allocs.stack_slots_for_vars);
+    m_frame_size = (m_frame_size + 15) & ~15;
+    m_frame_local = add_local(BinaryenTypeInt32());
   }
 
   const auto& code = m_env->code();
@@ -281,8 +326,28 @@ void WasmFunctionGen::build() {
                                 BinaryenTypeNone()));
   }
   const auto& info = emitter::reg_info(emitter::InstructionSet::WASM);
-  auto exit = RelooperAddBlock(
-      relooper, BinaryenReturn(mod, get_reg_value(info.get_gpr_ret_reg(), RegClass::GPR_64)));
+  auto ret = BinaryenReturn(mod, get_reg_value(info.get_gpr_ret_reg(), RegClass::GPR_64));
+  RelooperBlockRef prologue = nullptr;
+  RelooperBlockRef exit = nullptr;
+  if (m_frame_size) {
+    const char* sp = m_module_gen->stack_pointer_global();
+    auto sp_get = [&]() { return BinaryenGlobalGet(mod, sp, BinaryenTypeInt32()); };
+    BinaryenExpressionRef enter[2] = {
+        BinaryenLocalSet(mod, m_frame_local,
+                         BinaryenBinary(mod, BinaryenSubInt32(), sp_get(), i32(m_frame_size))),
+        BinaryenGlobalSet(mod, sp, BinaryenLocalGet(mod, m_frame_local, BinaryenTypeInt32()))};
+    prologue =
+        RelooperAddBlock(relooper, BinaryenBlock(mod, nullptr, enter, 2, BinaryenTypeNone()));
+    BinaryenExpressionRef leave[2] = {
+        BinaryenGlobalSet(mod, sp,
+                          BinaryenBinary(mod, BinaryenAddInt32(),
+                                         BinaryenLocalGet(mod, m_frame_local, BinaryenTypeInt32()),
+                                         i32(m_frame_size))),
+        ret};
+    exit = RelooperAddBlock(relooper, BinaryenBlock(mod, nullptr, leave, 2, BinaryenTypeNone()));
+  } else {
+    exit = RelooperAddBlock(relooper, ret);
+  }
   auto block_for = [&](int ir_idx) {
     return ir_idx == n ? exit : m_blocks.at(block_starting_at(ir_idx)).ref;
   };
@@ -310,6 +375,10 @@ void WasmFunctionGen::build() {
   }
 
   auto entry = m_blocks.empty() ? exit : m_blocks.front().ref;
+  if (prologue) {
+    RelooperAddBranch(prologue, entry, nullptr, nullptr);
+    entry = prologue;
+  }
   auto label_helper = add_local(BinaryenTypeInt32());
   BinaryenExpressionRef body_parts[2] = {RelooperRenderAndDispose(relooper, entry, label_helper),
                                          BinaryenUnreachable(mod)};
@@ -370,6 +439,14 @@ const char* WasmModuleGen::segment_global(int seg) {
     BinaryenAddGlobalImport(m_module, names[seg], "env", names[seg], BinaryenTypeInt32(), false);
   }
   return names[seg];
+}
+
+const char* WasmModuleGen::stack_pointer_global() {
+  if (!m_stack_pointer_global) {
+    m_stack_pointer_global = true;
+    BinaryenAddGlobalImport(m_module, "sp", "env", "sp", BinaryenTypeInt32(), true);
+  }
+  return "sp";
 }
 
 std::pair<int, int> WasmModuleGen::function_location(int idx_in_file) const {

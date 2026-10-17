@@ -1,0 +1,21 @@
+;; stack arrays and address-taken variables
+
+(defun wasm-sum-stack ((n int))
+  (let ((arr (new 'stack-no-clear 'array 'int32 16))
+        (total 0))
+    (dotimes (i n)
+      (set! (-> arr i) (* i i)))
+    (dotimes (i n)
+      (+! total (-> arr i)))
+    total))
+
+(define-extern wasm-nested-stack (function int int))
+(defun wasm-nested-stack ((depth int))
+  (let ((arr (new 'stack-no-clear 'array 'int32 4)))
+    (set! (-> arr 0) depth)
+    (if (> depth 0)
+        (+ (-> arr 0) (wasm-nested-stack (+ depth -1)))
+        0)))
+
+(_format #t "~D ~D ~D~%" (wasm-sum-stack 10) (wasm-sum-stack 16) (wasm-nested-stack 20))
+0
