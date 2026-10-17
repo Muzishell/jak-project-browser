@@ -92,3 +92,6 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 
 - 2026-10-17: Checkout dir must be named `jak-project` — `try_get_project_path_from_path` (common/util/FileUtil.cpp) does `rfind("jak-project")`, so `jak-project-browser/` makes goalc-test abort at startup.
 - 2026-10-17: M1 done — `Release-linux-clang` builds to `build/Release/bin`; run `build/Release/bin/goalc-test --gtest_filter=-*MANUAL_TEST*` (root `test.sh` expects `build/goalc-test`). 1669/1669 pass.
+- 2026-10-17: M2 slice 1 — `InstructionSet::WASM` reuses the x86 `RegisterInfo` (`gRegInfo`): each x86 register id maps to a wasm local. x86-only RAX/RCX constraints for div/mod/shift are skipped for WASM.
+- 2026-10-17: Binaryen `version_133` via FetchContent (release tarball + SHA256) only when `OPENGOAL_WASM_BACKEND=ON`; preset `Release-linux-clang-wasm-backend` → `build/WasmBackend/bin`. Keep `BUILD_LLVM_DWARF` ON (Outlining.cpp needs llvm/Support).
+- 2026-10-17: `task format` with Ubuntu's clang-format 18 rewrites ~14 untouched upstream files (`() {};` → `(){};`); restore those before committing. `format-json` needs `npx` (not installed).

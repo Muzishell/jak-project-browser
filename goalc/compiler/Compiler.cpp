@@ -49,9 +49,8 @@ Compiler::Compiler(GameVersion version,
   compile_object_file("goal-lib", library_code, false);
 
   // goal-lib defaults this to x86 for older compilers
-  m_goos.set_global_variable_by_name(
-      "INSTRUCTION_SET",
-      m_goos.intern(m_instr_set == emitter::InstructionSet::ARM64 ? "arm64" : "x86"));
+  m_goos.set_global_variable_by_name("INSTRUCTION_SET",
+                                     m_goos.intern(emitter::instruction_set_name(m_instr_set)));
 
   // user profile stuff
   if (user_profile != "#f" && fs::exists(file_util::get_jak_project_dir() / "goal_src" / "user" /

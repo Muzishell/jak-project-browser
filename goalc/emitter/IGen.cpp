@@ -1,5 +1,7 @@
 #include "IGen.h"
 
+#include <stdexcept>
+
 #include "IGenARM64.h"
 #include "IGenX86.h"
 #include "goalc/emitter/ObjectGenerator.h"
@@ -10,7 +12,10 @@
       return X86::name(__VA_ARGS__);   \
     case InstructionSet::ARM64:        \
       return ARM64::name(__VA_ARGS__); \
-  }
+    case InstructionSet::WASM:         \
+      break;                           \
+  }                                    \
+  throw std::runtime_error("IGen::" #name " has no wasm encoding");
 
 namespace emitter {
 namespace IGen {

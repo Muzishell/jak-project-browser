@@ -195,6 +195,8 @@ RegisterInfo gRegInfoArm64 = RegisterInfo::make_register_info_arm64();
 const RegisterInfo& reg_info(InstructionSet instr_set) {
   switch (instr_set) {
     case InstructionSet::X86:
+    // wasm keeps the x86 layout; codegen maps each register to a local
+    case InstructionSet::WASM:
       return gRegInfo;
     case InstructionSet::ARM64:
       return gRegInfoArm64;

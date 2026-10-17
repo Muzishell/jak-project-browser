@@ -49,7 +49,7 @@ emitter::Register Compiler::parse_register(const goos::Object& code) {
   }
 
   throw_compiler_error(code, "{} is not a register name for the {} backend", code.print(),
-                       m_instr_set == emitter::InstructionSet::ARM64 ? "arm64" : "x86");
+                       emitter::instruction_set_name(m_instr_set));
   return {};
 }
 

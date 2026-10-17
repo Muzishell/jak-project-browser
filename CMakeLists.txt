@@ -25,6 +25,10 @@ else()
     set(BUILD_STATIC_LIBS OFF)
 endif()
 
+# Experimental WebAssembly codegen backend for the compiler. Fetches Binaryen at configure time.
+option(OPENGOAL_WASM_BACKEND "Build the experimental WebAssembly codegen backend" OFF)
+message(STATUS "WebAssembly backend? ${OPENGOAL_WASM_BACKEND}")
+
 # For clangd
 # file(COPY), not configure_file(): configure_file registers its input as a
 # configure dependency, putting the ever-rewritten compile_commands.json into

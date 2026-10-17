@@ -146,7 +146,7 @@ class Register {
   Register(int id) : m_id(id) {}
 
   bool is_128bit_simd(emitter::InstructionSet instr_set) const {
-    if (instr_set == emitter::InstructionSet::X86) {
+    if (instr_set == emitter::InstructionSet::X86 || instr_set == emitter::InstructionSet::WASM) {
       return m_id >= XMM0 && m_id <= XMM15;
     } else if (instr_set == emitter::InstructionSet::ARM64) {
       return m_id >= V0 && m_id <= V31;
@@ -156,7 +156,7 @@ class Register {
   }
 
   bool is_xmm(emitter::InstructionSet instr_set) const {
-    if (instr_set == emitter::InstructionSet::X86) {
+    if (instr_set == emitter::InstructionSet::X86 || instr_set == emitter::InstructionSet::WASM) {
       return m_id >= XMM0 && m_id <= XMM15;
     } else if (instr_set == emitter::InstructionSet::ARM64) {
       return false;
@@ -166,7 +166,7 @@ class Register {
   }
 
   bool is_gpr(emitter::InstructionSet instr_set) const {
-    if (instr_set == emitter::InstructionSet::X86) {
+    if (instr_set == emitter::InstructionSet::X86 || instr_set == emitter::InstructionSet::WASM) {
       return m_id >= RAX && m_id <= R15;
     } else if (instr_set == emitter::InstructionSet::ARM64) {
       return (m_id >= X0 && m_id <= X30) || m_id == SP;
@@ -177,7 +177,7 @@ class Register {
 
   int hw_id(emitter::InstructionSet instr_set) const {
     // strip the register class from the hardware ID
-    if (instr_set == emitter::InstructionSet::X86) {
+    if (instr_set == emitter::InstructionSet::X86 || instr_set == emitter::InstructionSet::WASM) {
       if (is_xmm(instr_set)) {
         return m_id - XMM0;
       } else if (is_gpr(instr_set)) {

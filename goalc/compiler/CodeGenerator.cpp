@@ -598,8 +598,10 @@ void CodeGenerator::do_asm_function(FunctionEnv* env, int f_idx, bool allow_save
     // do the actual op
     if (m_gen.instr_set() == InstructionSet::X86) {
       ir->do_codegen_x86(&m_gen, allocs, i_rec);
-    } else {
+    } else if (m_gen.instr_set() == InstructionSet::ARM64) {
       ir->do_codegen_arm64(&m_gen, allocs, i_rec);
+    } else {
+      throw std::runtime_error("CodeGenerator::do_asm_function, instruction set not supported");
     }
   }
 }

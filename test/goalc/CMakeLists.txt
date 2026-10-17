@@ -19,6 +19,10 @@ set(GOALC_TEST_CASES
     ${CMAKE_CURRENT_LIST_DIR}/test_vector_float.cpp
 )
 
+if (OPENGOAL_WASM_BACKEND)
+    list(APPEND GOALC_TEST_CASES ${CMAKE_CURRENT_LIST_DIR}/test_wasm_backend.cpp)
+endif ()
+
 set(GOALC_TEST_FRAMEWORK_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/framework/test_runner.cpp
     ${CMAKE_CURRENT_LIST_DIR}/framework/test_runner.h

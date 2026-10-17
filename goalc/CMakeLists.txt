@@ -87,6 +87,30 @@ add_library(compiler
 
 target_link_libraries(compiler common Zydis capstone tiny_gltf decomp)
 
+if (OPENGOAL_WASM_BACKEND)
+    include(FetchContent)
+    # Release tarball, not a git clone: avoids pulling Binaryen's submodules.
+    FetchContent_Declare(binaryen
+            URL https://github.com/WebAssembly/binaryen/archive/refs/tags/version_133.tar.gz
+            URL_HASH SHA256=2f3e3d9edc56751499571da073a8a81943ca3fcbc08a945d2c619a7a1d4eb88b
+            EXCLUDE_FROM_ALL)
+    # in a function so these settings only apply inside Binaryen's directory
+    function(opengoal_fetch_binaryen)
+        set(BUILD_SHARED_LIBS OFF)
+        set(BUILD_TESTS OFF)
+        set(BUILD_TOOLS OFF)
+        # BUILD_LLVM_DWARF stays ON: passes/Outlining.cpp needs its llvm/Support headers
+        set(BYN_ENABLE_LTO OFF)
+        set(ENABLE_WERROR OFF)
+        set(INSTALL_LIBS OFF)
+        FetchContent_MakeAvailable(binaryen)
+    endfunction()
+    opengoal_fetch_binaryen()
+    target_include_directories(compiler PUBLIC ${binaryen_SOURCE_DIR}/src)
+    target_link_libraries(compiler binaryen)
+    target_compile_definitions(compiler PUBLIC OPENGOAL_WASM_BACKEND)
+endif ()
+
 if (WIN32)
     target_link_libraries(compiler mman)
 endif ()

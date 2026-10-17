@@ -185,6 +185,16 @@
       "inherits": ["base-linux-release", "base-clang"]
     },
     {
+      "name": "Release-linux-clang-wasm-backend",
+      "displayName": "Linux Release (clang) + WebAssembly backend",
+      "description": "Native Release build with the experimental WebAssembly codegen backend",
+      "inherits": ["base-linux-release", "base-clang"],
+      "binaryDir": "${sourceDir}/build/WasmBackend/bin",
+      "cacheVariables": {
+        "OPENGOAL_WASM_BACKEND": "ON"
+      }
+    },
+    {
       "name": "Debug-macos-arm64-clang",
       "displayName": "MacOS ARM64 Debug (clang)",
       "description": "Build for ARM64 with Clang as Debug",
