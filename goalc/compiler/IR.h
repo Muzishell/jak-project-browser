@@ -202,6 +202,7 @@ class IR_RegValAddr : public IR {
 class IR_StaticVarAddr : public IR {
  public:
   IR_StaticVarAddr(const RegVal* dest, const StaticObject* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -236,6 +237,7 @@ class IR_StaticVarLoad : public IR {
 class IR_FunctionAddr : public IR {
  public:
   IR_FunctionAddr(const RegVal* dest, FunctionEnv* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,

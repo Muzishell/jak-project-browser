@@ -6,7 +6,9 @@
 
 #include "common/symbols.h"
 
+#include "goalc/compiler/Env.h"
 #include "goalc/compiler/IR.h"
+#include "goalc/compiler/StaticObject.h"
 #include "goalc/compiler/Val.h"
 #include "goalc/compiler/wasm/WasmCodeGenerator.h"
 
@@ -104,6 +106,21 @@ void IR_GetSymbolValue::do_codegen_wasm(WasmFunctionGen* gen) {
 
 void IR_RegSet::do_codegen_wasm(WasmFunctionGen* gen) {
   regset_common(gen, this, m_dest, m_src);
+}
+
+void IR_StaticVarAddr::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_gpr(m_dest)) {
+    unsupported(this);
+  }
+  gen->emit(gen->set(m_dest, unary(gen, BinaryenExtendUInt32(), gen->static_addr(m_src))));
+}
+
+void IR_FunctionAddr::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (!is_gpr(m_dest)) {
+    unsupported(this);
+  }
+  gen->emit(
+      gen->set(m_dest, unary(gen, BinaryenExtendUInt32(), gen->function_addr(m_src->idx_in_file))));
 }
 
 void IR_FunctionCall::do_codegen_wasm(WasmFunctionGen* gen) {

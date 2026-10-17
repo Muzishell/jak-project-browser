@@ -99,6 +99,14 @@ class ObjectGenerator {
   ObjectGeneratorStats get_stats() const;
   void count_eliminated_move();
 
+  // Layout queries, valid after generate_data_v3. Offsets are from the start of the segment.
+  int function_offset_in_seg(const FunctionRecord& rec) const {
+    return m_function_data_by_seg.at(rec.seg).at(rec.func_id).instruction_to_byte_in_data.at(0);
+  }
+  int static_offset_in_seg(const StaticRecord& rec) const {
+    return m_static_data_by_seg.at(rec.seg).at(rec.static_id).location;
+  }
+
   GameVersion version() const { return m_version; }
 
   InstructionSet instr_set() const { return m_instruction_set; }

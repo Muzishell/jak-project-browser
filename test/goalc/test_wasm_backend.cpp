@@ -72,20 +72,26 @@ class WasmCodegen : public ::testing::Test {
   }
   static void TearDownTestSuite() { compiler.reset(); }
 
-  //! Compile to a module, check the wasm magic, and optionally dump it for inspection.
-  static std::vector<u8> compile(const std::string& src,
-                                 const std::string& name,
-                                 std::string* text = nullptr) {
-    auto bytes = compiler->compile_wasm_module_from_string(src, name, text);
-    EXPECT_GE(bytes.size(), 8u);
-    if (bytes.size() >= 4) {
-      EXPECT_EQ(memcmp(bytes.data(), "\0asm", 4), 0);
+  //! Compile to an object + module, check both magics, and optionally dump them for inspection.
+  static wasm_backend::WasmObject compile(const std::string& src,
+                                          const std::string& name,
+                                          std::string* text = nullptr) {
+    auto out = compiler->compile_wasm_object_from_string(src, name, text);
+    EXPECT_GE(out.wasm.size(), 8u);
+    if (out.wasm.size() >= 4) {
+      EXPECT_EQ(memcmp(out.wasm.data(), "\0asm", 4), 0);
+    }
+    EXPECT_GE(out.object.size(), 68u);
+    if (out.object.size() >= 4) {
+      EXPECT_EQ(memcmp(out.object.data(), "GOAL", 4), 0);
     }
     if (const char* dump_dir = std::getenv("OPENGOAL_WASM_DUMP_DIR")) {
-      file_util::write_binary_file(fs::path(dump_dir) / (name + ".wasm"), bytes.data(),
-                                   bytes.size());
+      file_util::write_binary_file(fs::path(dump_dir) / (name + ".wasm"), out.wasm.data(),
+                                   out.wasm.size());
+      file_util::write_binary_file(fs::path(dump_dir) / (name + ".o"), out.object.data(),
+                                   out.object.size());
     }
-    return bytes;
+    return out;
   }
 
   static std::unique_ptr<Compiler> compiler;
@@ -98,31 +104,26 @@ std::string arithmetic_template(const std::string& name) {
 }
 }  // namespace
 
-// integer-only arithmetic templates with no function definitions
+// integer-only arithmetic templates, including defun and static strings
 TEST_F(WasmCodegen, IntegerArithmeticTemplates) {
   for (const char* file :
-       {"add-int-literals", "add-let", "subtract-let", "multiply-let", "multiply32", "multiply64",
-        "divide-1", "divide-2", "mod", "logand", "logior", "logxor", "shiftvs", "shift-fixed"}) {
+       {"add-int-literals", "add-let",      "add-int-multiple", "add-int-multiple-2",
+        "add-int-vars",     "subtract-1",   "subtract-2",       "subtract-let",
+        "multiply",         "multiply-let", "multiply32",       "multiply64",
+        "divide-1",         "divide-2",     "divide-signs",     "mod",
+        "mod-unsigned",     "logand",       "logior",           "logxor",
+        "shiftvs",          "shift-fixed"}) {
     SCOPED_TRACE(file);
     EXPECT_NO_THROW(compile(arithmetic_template(file), file));
   }
 }
 
-// these need function addresses (defun) or static data, which come with linking
-TEST_F(WasmCodegen, TemplatesNeedingLinkingAreRejected) {
-  for (const char* file : {"add-int-multiple", "add-int-multiple-2", "add-int-vars", "subtract-1",
-                           "subtract-2", "multiply", "divide-signs", "mod-unsigned"}) {
-    SCOPED_TRACE(file);
-    try {
-      compile(arithmetic_template(file), file);
-      ADD_FAILURE() << "expected an unsupported IR error";
-    } catch (std::runtime_error& e) {
-      std::string what = e.what();
-      EXPECT_TRUE(what.find("mov-fa") != std::string::npos ||
-                  what.find("mov-sva") != std::string::npos)
-          << what;
-    }
-  }
+TEST_F(WasmCodegen, DefunUsesSegmentAddresses) {
+  std::string text;
+  compile("(defun wasm-add-one ((x int)) (+ x 1)) (wasm-add-one 2)", "wasm-defun", &text);
+  // the function value is an address in the main segment, the top level is in the top segment
+  EXPECT_NE(text.find("(import \"env\" \"seg_main\""), std::string::npos) << text;
+  EXPECT_NE(text.find("(elem"), std::string::npos) << text;
 }
 
 TEST_F(WasmCodegen, LoopUsesStructuredControlFlow) {

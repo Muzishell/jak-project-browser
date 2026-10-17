@@ -24,6 +24,10 @@
 #include "fmt/color.h"
 #include "fmt/format.h"
 
+#ifdef OPENGOAL_WASM_BACKEND
+#include "goalc/compiler/wasm/WasmObject.h"
+#endif
+
 enum MathMode { MATH_INT, MATH_BINT, MATH_FLOAT, MATH_INVALID };
 
 enum class ReplStatus { OK, WANT_EXIT, WANT_RELOAD };
@@ -77,10 +81,17 @@ class Compiler {
   void run_front_end_on_string(const std::string& src);
   void run_front_end_on_file(const std::vector<std::string>& path);
 #ifdef OPENGOAL_WASM_BACKEND
-  //! Compile source to a wasm module (WASM instruction set only). Optionally returns its text.
-  std::vector<u8> compile_wasm_module_from_string(const std::string& src,
-                                                  const std::string& obj_name,
-                                                  std::string* text_out = nullptr);
+  //! Compile to a v3 object + wasm module (WASM instruction set only). Optionally returns the
+  //! module's text form.
+  wasm_backend::WasmObject compile_wasm_object(const goos::Object& code,
+                                               const std::string& obj_name,
+                                               std::string* text_out = nullptr);
+  wasm_backend::WasmObject compile_wasm_object_from_string(const std::string& src,
+                                                           const std::string& obj_name,
+                                                           std::string* text_out = nullptr);
+  //! path is relative to the project, like run_test_from_file
+  wasm_backend::WasmObject compile_wasm_object_from_file(const std::string& path,
+                                                         std::string* text_out = nullptr);
 #endif
   void run_full_compiler_on_string_no_save(const std::string& src,
                                            const std::optional<std::string>& string_name);

@@ -3,10 +3,16 @@
 #include <cstdlib>
 #include <stdexcept>
 
+#include "common/link_types.h"
+
 #include "goalc/compiler/Compiler.h"
 #include "goalc/compiler/Env.h"
 #include "goalc/compiler/IR.h"
+#include "goalc/compiler/StaticObject.h"
 #include "goalc/compiler/Val.h"
+#include "goalc/debugger/DebugInfo.h"
+#include "goalc/emitter/Instruction.h"
+#include "goalc/emitter/ObjectGenerator.h"
 
 #include "fmt/format.h"
 
@@ -159,6 +165,27 @@ BinaryenExpressionRef WasmFunctionGen::symbol_addr(const std::string& name) {
   return BinaryenBinary(
       module(), BinaryenAddInt32(), st(),
       BinaryenGlobalGet(module(), m_module_gen->symbol_global(name), BinaryenTypeInt32()));
+}
+
+namespace {
+BinaryenExpressionRef segment_offset_addr(BinaryenModuleRef mod,
+                                          WasmModuleGen* module_gen,
+                                          std::pair<int, int> location) {
+  return BinaryenBinary(
+      mod, BinaryenAddInt32(),
+      BinaryenGlobalGet(mod, module_gen->segment_global(location.first), BinaryenTypeInt32()),
+      BinaryenConst(mod, BinaryenLiteralInt32(location.second)));
+}
+}  // namespace
+
+BinaryenExpressionRef WasmFunctionGen::function_addr(int idx_in_file) {
+  return segment_offset_addr(module(), m_module_gen, m_module_gen->function_location(idx_in_file));
+}
+
+BinaryenExpressionRef WasmFunctionGen::static_addr(const StaticObject* obj) {
+  auto location = m_module_gen->static_location(obj);
+  location.second += obj->get_addr_offset();
+  return segment_offset_addr(module(), m_module_gen, location);
 }
 
 void WasmFunctionGen::emit(BinaryenExpressionRef expr) {
@@ -334,9 +361,62 @@ const char* WasmModuleGen::symbol_global(const std::string& name) {
   return it->second.c_str();
 }
 
-std::vector<u8> WasmModuleGen::run(FileEnv* env) {
+const char* WasmModuleGen::segment_global(int seg) {
+  static const char* names[N_SEG] = {"seg_main", "seg_debug", "seg_top"};
+  ASSERT(seg >= 0 && seg < N_SEG);
+  if (!m_segment_globals[seg]) {
+    m_segment_globals[seg] = true;
+    BinaryenAddGlobalImport(m_module, names[seg], "env", names[seg], BinaryenTypeInt32(), false);
+  }
+  return names[seg];
+}
+
+std::pair<int, int> WasmModuleGen::function_location(int idx_in_file) const {
+  return m_function_locations.at(idx_in_file);
+}
+
+std::pair<int, int> WasmModuleGen::static_location(const StaticObject* obj) const {
+  auto it = m_static_locations.find(obj);
+  if (it == m_static_locations.end()) {
+    throw std::runtime_error("wasm backend: static object is not in this file: " + obj->print());
+  }
+  return it->second;
+}
+
+WasmObject WasmModuleGen::run(FileEnv* env, const TypeSystem* ts) {
+  WasmObject out;
+  const auto& functions = env->functions();
+
+  // lay out the object file first, so the code can use the final segment offsets.
+  // each function is a type tag and a 4-byte slot holding its index in this file.
+  DebugInfo debug_info(env->name());
+  emitter::ObjectGenerator obj_gen(m_version, emitter::InstructionSet::WASM);
+  std::vector<emitter::FunctionRecord> records;
+  for (int i = 0; i < int(functions.size()); i++) {
+    // the top-level function is added last and has no idx_in_file
+    ASSERT(functions[i]->idx_in_file == i ||
+           (functions[i]->idx_in_file == -1 && functions[i].get() == &env->top_level_function()));
+    records.push_back(obj_gen.add_function_to_seg(
+        functions[i]->segment, &debug_info.add_function(functions[i]->name(), env->name())));
+  }
+  for (auto& static_obj : env->statics()) {
+    static_obj->generate(&obj_gen);
+  }
+  for (int i = 0; i < int(functions.size()); i++) {
+    obj_gen.add_instr_no_ir(records[i], emitter::InstructionARM64(u32(i)),
+                            InstructionInfo::Kind::IR);
+  }
+  out.object = obj_gen.generate_data_v3(ts).to_vector();
+  for (auto& rec : records) {
+    m_function_locations.emplace_back(rec.seg, obj_gen.function_offset_in_seg(rec));
+  }
+  for (auto& static_obj : env->statics()) {
+    m_static_locations[static_obj.get()] = {static_obj->rec.seg,
+                                            obj_gen.static_offset_in_seg(static_obj->rec)};
+  }
+
   std::vector<std::string> names;
-  for (auto& f : env->functions()) {
+  for (auto& f : functions) {
     WasmFunctionGen gen(this, f.get());
     gen.build();
     names.push_back(function_wasm_name(f.get()));
@@ -357,12 +437,12 @@ std::vector<u8> WasmModuleGen::run(FileEnv* env) {
   }
 
   auto result = BinaryenModuleAllocateAndWrite(m_module, nullptr);
-  std::vector<u8> bytes((u8*)result.binary, (u8*)result.binary + result.binaryBytes);
+  out.wasm.assign((u8*)result.binary, (u8*)result.binary + result.binaryBytes);
   free(result.binary);
   if (result.sourceMap) {
     free(result.sourceMap);
   }
-  return bytes;
+  return out;
 }
 
 std::string WasmModuleGen::text() const {
@@ -374,20 +454,30 @@ std::string WasmModuleGen::text() const {
 
 }  // namespace wasm_backend
 
-std::vector<u8> Compiler::compile_wasm_module_from_string(const std::string& src,
-                                                          const std::string& obj_name,
-                                                          std::string* text_out) {
+wasm_backend::WasmObject Compiler::compile_wasm_object(const goos::Object& code,
+                                                       const std::string& obj_name,
+                                                       std::string* text_out) {
   if (m_instr_set != emitter::InstructionSet::WASM) {
-    throw std::runtime_error("compile_wasm_module_from_string needs the WASM instruction set");
+    throw std::runtime_error("compile_wasm_object needs the WASM instruction set");
   }
-  auto code = m_goos.reader.read_from_string({src});
   auto compiled = compile_object_file(obj_name, code, true);
   color_object_file(compiled);
   wasm_backend::WasmModuleGen gen(m_version);
-  auto result = gen.run(compiled);
+  auto result = gen.run(compiled, &m_ts);
   if (text_out) {
     *text_out = gen.text();
   }
   compiled->cleanup_after_codegen();
   return result;
+}
+
+wasm_backend::WasmObject Compiler::compile_wasm_object_from_string(const std::string& src,
+                                                                   const std::string& obj_name,
+                                                                   std::string* text_out) {
+  return compile_wasm_object(m_goos.reader.read_from_string({src}), obj_name, text_out);
+}
+
+wasm_backend::WasmObject Compiler::compile_wasm_object_from_file(const std::string& path,
+                                                                 std::string* text_out) {
+  return compile_wasm_object(m_goos.reader.read_from_file({path}), "test-code", text_out);
 }
