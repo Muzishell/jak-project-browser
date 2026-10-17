@@ -9,6 +9,18 @@
 #include "goalc/emitter/Register.h"
 #include "goalc/regalloc/allocator_interface.h"
 
+#ifdef OPENGOAL_WASM_BACKEND
+#include <stdexcept>
+
+namespace wasm_backend {
+class WasmFunctionGen;
+}
+// declares the wasm codegen override in IR classes the wasm backend supports
+#define IR_WASM_CODEGEN void do_codegen_wasm(wasm_backend::WasmFunctionGen* gen) override;
+#else
+#define IR_WASM_CODEGEN
+#endif
+
 class IR {
  public:
   virtual std::string print() = 0;
@@ -19,6 +31,12 @@ class IR {
   virtual void do_codegen_arm64(emitter::ObjectGenerator* gen,
                                 const AllocationResult& allocs,
                                 emitter::IR_Record irec) = 0;
+#ifdef OPENGOAL_WASM_BACKEND
+  virtual void do_codegen_wasm(wasm_backend::WasmFunctionGen* gen) {
+    (void)gen;
+    throw std::runtime_error("wasm backend does not support IR: " + print());
+  }
+#endif
   virtual void add_constraints(std::vector<IRegConstraint>* constraints, int my_id) {
     (void)constraints;
     (void)my_id;
@@ -29,6 +47,7 @@ class IR {
 class IR_Return : public IR {
  public:
   IR_Return(const RegVal* return_reg, const RegVal* value, emitter::Register ret_reg);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void add_constraints(std::vector<IRegConstraint>* constraints, int my_id) override;
@@ -49,6 +68,7 @@ class IR_Return : public IR {
 class IR_LoadConstant64 : public IR {
  public:
   IR_LoadConstant64(const RegVal* dest, u64 value);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -66,6 +86,7 @@ class IR_LoadConstant64 : public IR {
 class IR_LoadSymbolPointer : public IR {
  public:
   IR_LoadSymbolPointer(const RegVal* dest, std::string name);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -83,6 +104,7 @@ class IR_LoadSymbolPointer : public IR {
 class IR_SetSymbolValue : public IR {
  public:
   IR_SetSymbolValue(const SymbolVal* dest, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -100,6 +122,7 @@ class IR_SetSymbolValue : public IR {
 class IR_GetSymbolValue : public IR {
  public:
   IR_GetSymbolValue(const RegVal* dest, const SymbolVal* src, bool sext);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -118,6 +141,7 @@ class IR_GetSymbolValue : public IR {
 class IR_RegSet : public IR {
  public:
   IR_RegSet(const RegVal* dest, const RegVal* src);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -139,6 +163,7 @@ class IR_FunctionCall : public IR {
                   std::vector<RegVal*> args,
                   std::vector<emitter::Register> arg_regs,
                   std::optional<emitter::Register> ret_reg);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -255,6 +280,7 @@ class IR_IntegerMath : public IR {
                  RegVal* arg,
                  emitter::InstructionSet instr_set);
   IR_IntegerMath(IntegerMathKind kind, RegVal* dest, u8 shift_amount);
+  IR_WASM_CODEGEN
   static bool is_division(IntegerMathKind kind);
   std::string print() override;
   RegAllocInstr to_rai() override;
@@ -312,6 +338,7 @@ class IR_GotoLabel : public IR {
   IR_GotoLabel();
   void resolve(const Label* dest);
   explicit IR_GotoLabel(const Label* dest);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -329,6 +356,7 @@ class IR_GotoLabel : public IR {
 class IR_ConditionalBranch : public IR {
  public:
   IR_ConditionalBranch(const Condition& condition, Label _label);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -349,6 +377,7 @@ class IR_ConditionalBranch : public IR {
 class IR_Null : public IR {
  public:
   IR_Null() = default;
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -362,6 +391,7 @@ class IR_Null : public IR {
 class IR_ValueReset : public IR {
  public:
   IR_ValueReset(std::vector<RegVal*> args);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -429,6 +459,7 @@ class IR_GetStackAddr : public IR {
 class IR_Nop : public IR {
  public:
   IR_Nop();
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -455,6 +486,7 @@ class IR_LoadConstOffset : public IR_Asm {
                      const RegVal* base,
                      MemLoadInfo info,
                      bool use_coloring = true);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -478,6 +510,7 @@ class IR_StoreConstOffset : public IR_Asm {
                       const RegVal* base,
                       int size,
                       bool use_coloring = true);
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,

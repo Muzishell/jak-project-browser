@@ -106,6 +106,9 @@ if (OPENGOAL_WASM_BACKEND)
         FetchContent_MakeAvailable(binaryen)
     endfunction()
     opengoal_fetch_binaryen()
+    target_sources(compiler PRIVATE
+            compiler/wasm/IR_wasm.cpp
+            compiler/wasm/WasmCodeGenerator.cpp)
     target_include_directories(compiler PUBLIC ${binaryen_SOURCE_DIR}/src)
     target_link_libraries(compiler binaryen)
     target_compile_definitions(compiler PUBLIC OPENGOAL_WASM_BACKEND)

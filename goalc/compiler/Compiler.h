@@ -76,6 +76,12 @@ class Compiler {
   void compile_and_send_from_string(const std::string& source_code);
   void run_front_end_on_string(const std::string& src);
   void run_front_end_on_file(const std::vector<std::string>& path);
+#ifdef OPENGOAL_WASM_BACKEND
+  //! Compile source to a wasm module (WASM instruction set only). Optionally returns its text.
+  std::vector<u8> compile_wasm_module_from_string(const std::string& src,
+                                                  const std::string& obj_name,
+                                                  std::string* text_out = nullptr);
+#endif
   void run_full_compiler_on_string_no_save(const std::string& src,
                                            const std::optional<std::string>& string_name);
   void shutdown_target();
