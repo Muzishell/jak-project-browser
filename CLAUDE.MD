@@ -83,7 +83,7 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 ## Milestones (update the status here as they land)
 
 - [x] M1 Native build from source on `wasm` branch; `goalc-test` passes.
-- [ ] M2 `do_codegen_wasm` validated on compiler tests (`test/goalc/`, `test/goalc/test_CodeTester.cpp`
+- [x] M2 `do_codegen_wasm` validated on compiler tests (`test/goalc/`, `test/goalc/test_CodeTester.cpp`
       pattern) executed in Node. No game data needed.
 - [ ] M3 Headless runtime under Emscripten (GL and audio stubbed) boots until `KERNEL.CGO` is linked
       and the kernel loop runs.
@@ -123,3 +123,6 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-17: Moves between xmm classes use separate locals: FLOAT→vector = replace lane 0 of the vector local (movss keeps upper lanes), GPR→vector = movq (upper 64 zeroed). Code relying on upper lanes after scalar FLOAT ops on the same xmm would differ; none found so far.
 - 2026-10-17: Stack frames: shadow stack via imported mutable `sp`, x86 frame layout; only address-taken (`forced_on_stack`) spills go to memory. 128-bit function args/returns are still unsupported (needs an ABI change to the `(i64 x8) -> i64` signature).
 - 2026-10-17: `test_wasm_vs_native.cpp` runs templates in `source_templates/wasm-vs-native/` on the native no-kernel runtime and in Node and requires identical output — use it for anything without a native expected string.
+- 2026-10-17: M2 done (scope: the no-kernel suites). Ported to Node with native expected output: arithmetic (all), control-statements (all but align16-2), collections (all), variables (10 of 15), plus wasm-vs-native. Left for M3: tests that need the C kernel's type system (deftype/object-new/method-set!, built-in type objects), the with_game/kernel suites (need KERNEL.CGO), and asm functions.
+- 2026-10-17: Still unsupported in wasm, needed by M3/M4: asm functions and asm-only IR (.push/.pop/.ret/.jr, IR_GetSymbolValueAsm), 128-bit function args/returns, and the special registers (pp r13, st r14, off r15) as rlet values — the kernel's gkernel.gc relies on all of these.
+- 2026-10-17: Harness layout mirrors native jak1 where tests observe it: 128 MB EE, s7 at 0x14fd24, stack top 0x7fffff0, symbols at offsets ≡4 mod 8 with a `symbol` type tag, types laid out like kscheme `Type` with print_object as method 2, pair new = new_pair.

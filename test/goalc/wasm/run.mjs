@@ -27,7 +27,9 @@ if (opts.trueOffset === null || opts.emptyOffset === null || opts.files.length <
 const debug = process.env.WASM_RUN_DEBUG ? (msg) => console.error(`[run.mjs] ${msg}`) : () => {};
 
 // ---- EE memory ----
-const memory = new WebAssembly.Memory({ initial: 512 }); // 32 MB
+// the layout follows the native jak1 runtime where tests can observe it: 128 MB of EE memory,
+// s7 at the native address, the stack just below the top of EE memory
+const memory = new WebAssembly.Memory({ initial: 2048 }); // 128 MB, EE_MAIN_MEM_SIZE
 const table = new WebAssembly.Table({ initial: 0, element: "anyfunc" });
 const EE_BASE = 0; // GOAL address == linear memory address
 const u8 = () => new Uint8Array(memory.buffer);
@@ -35,9 +37,10 @@ const dv = () => new DataView(memory.buffer);
 const r32 = (addr) => dv().getUint32(EE_BASE + addr, true);
 const w32 = (addr, v) => dv().setUint32(EE_BASE + addr, v >>> 0, true);
 
-let heapTop = 0x400000; // below this: symbol table and the stack
-// shadow stack for functions with stack variables, grows down from just below the heap
-const stackPointer = new WebAssembly.Global({ value: "i32", mutable: true }, 0x3f0000);
+let heapTop = 0x400000; // below this: the symbol table
+// shadow stack for functions with stack variables: x86 starts the GOAL stack at
+// EE_MAIN_MEM_SIZE - GOAL_STACK_TOP_OFFSET (8); keep it 16-byte aligned
+const stackPointer = new WebAssembly.Global({ value: "i32", mutable: true }, 0x8000000 - 16);
 function alloc(size, align = 16) {
   heapTop = Math.ceil(heapTop / align) * align;
   const addr = heapTop;
@@ -47,14 +50,18 @@ function alloc(size, align = 16) {
 }
 
 // ---- symbol table ----
-const ST = 0x200000; // GOAL address of s7; symbols are 4-byte value slots at st + offset
+// GOAL address of s7; symbols are 4-byte value slots at st + offset. New symbols get offsets
+// that are 4 mod 8 like basics, so they never look like pairs (2) or bintegers (0).
+const ST = 0x14fd24; // jak1 s7 (variables/get-symbol tests print it)
 const symbolOffsets = new Map([["#f", 0], ["#t", opts.trueOffset]]);
-let nextSymbolOffset = 0x1000;
+let nextSymbolOffset = 0x1004;
+let symbolType = 0; // symbols are basics: the symbol type tag is in the word before the value
 function intern(name) {
   if (!symbolOffsets.has(name)) {
     symbolOffsets.set(name, nextSymbolOffset);
     w32(ST + nextSymbolOffset, ST); // unbound symbols hold #f
-    nextSymbolOffset += 4;
+    if (symbolType) w32(ST + nextSymbolOffset - 4, symbolType);
+    nextSymbolOffset += 8;
   }
   return symbolOffsets.get(name);
 }
@@ -62,17 +69,7 @@ w32(ST, ST); // #f
 w32(ST + opts.trueOffset, ST + opts.trueOffset); // #t
 const FALSE = ST;
 const TRUE = ST + opts.trueOffset;
-
-// types are basics; a type's symbol holds the type
-const types = new Map();
-function internType(name) {
-  if (!types.has(name)) {
-    const addr = alloc(16) + 4;
-    types.set(name, addr);
-    w32(ST + intern(name), addr);
-  }
-  return types.get(name);
-}
+const EMPTY_PAIR = ST + opts.emptyOffset;
 
 // ---- kernel functions (C functions in the real runtime) ----
 // A JS function can't go in a funcref table directly; re-export it from a tiny wasm module.
@@ -87,15 +84,64 @@ const wrapperModule = (() => {
     ...section(7, [1, ...str("f"), 0x00, 0]), // export f
   ]));
 })();
-function defineKernelFunction(name, fn) {
+
+// ---- types: basics laid out like jak1 Type (kscheme.h) ----
+// [tag] symbol(0) parent(4) allocated_size(8) padded_size(10) heap_base(12) num_methods(14)
+// method table(16...). Methods nobody defined trap.
+const MAX_METHODS = 64;
+const types = new Map();
+let missingMethodSlot = 0;
+let functionType = 0;
+// every type prints with the kernel's print_object (method 2, GOAL_PRINT_METHOD); set once the
+// print function exists
+const GOAL_PRINT_METHOD = 2;
+let printMethodSlot = 0;
+const setPrintMethod = (type) => w32(type + 16 + 4 * GOAL_PRINT_METHOD, printMethodSlot);
+function allocType(name, methodCount) {
+  const addr = alloc(4 + 16 + 4 * MAX_METHODS) + 4;
+  types.set(name, addr);
+  w32(addr, ST + intern(name));
+  dv().setUint16(EE_BASE + addr + 14, methodCount, true);
+  for (let i = 0; i < MAX_METHODS; i++) w32(addr + 16 + 4 * i, missingMethodSlot);
+  if (printMethodSlot) setPrintMethod(addr);
+  w32(ST + intern(name), addr);
+  return addr;
+}
+function internType(name, methodCount = 0) {
+  const addr = types.has(name) ? types.get(name) : allocType(name, methodCount);
+  const count = dv().getUint16(EE_BASE + addr + 14, true);
+  if (methodCount > count) dv().setUint16(EE_BASE + addr + 14, methodCount, true);
+  return addr;
+}
+
+function makeFunction(fn) {
   const wrapped = new WebAssembly.Instance(wrapperModule, { env: { f: fn } }).exports.f;
   const index = table.grow(1);
   table.set(index, wrapped);
   const slot = alloc(8) + 4; // type tag, then the table index
-  w32(slot - 4, internType("function"));
+  w32(slot - 4, functionType);
   w32(slot, index);
-  w32(ST + intern(name), slot);
+  return slot;
 }
+function defineKernelFunction(name, fn) {
+  w32(ST + intern(name), makeFunction(fn));
+}
+
+// bootstrap: the function type, then the trap for missing methods, then fill it in
+functionType = allocType("function", 9);
+missingMethodSlot = makeFunction(() => {
+  throw new Error("called a method the wasm test runtime does not have");
+});
+for (let i = 0; i < MAX_METHODS; i++) w32(functionType + 16 + 4 * i, missingMethodSlot);
+w32(missingMethodSlot - 4, functionType);
+
+// symbol type tags, now that types exist
+symbolType = internType("symbol", 9);
+for (const offset of symbolOffsets.values()) w32(ST + offset - 4, symbolType);
+
+// the empty pair's car and cdr are itself, as in the kernel
+w32(EMPTY_PAIR - 2, EMPTY_PAIR);
+w32(EMPTY_PAIR + 2, EMPTY_PAIR);
 
 let output = "";
 
@@ -165,13 +211,32 @@ function cvtFloat(x, precision) {
   return lead + digits;
 }
 
-// the parts of the kernel's print the compiler tests need: symbols and strings
+// the parts of the kernel's print_object (kscheme.cpp) the compiler tests need:
+// symbols, strings and pairs (print_pair)
+const OFFSET_MASK = 7, PAIR_OFFSET = 2;
 function printObject(value) {
   const addr = Number(asUnsigned(value) & 0xffffffffn);
   for (const [name, offset] of symbolOffsets) {
     if (addr === ST + offset) return name;
   }
-  if (addr >= 4 && r32(addr - 4) === types.get("string")) return goalString(addr);
+  if (addr === EMPTY_PAIR) return "()";
+  if ((addr & OFFSET_MASK) === PAIR_OFFSET) {
+    let out = "(";
+    let toPrint = addr;
+    for (;;) {
+      if ((toPrint & OFFSET_MASK) === PAIR_OFFSET) {
+        out += printObject(BigInt(r32(toPrint - 2)));
+        const cdr = r32(toPrint + 2);
+        toPrint = cdr;
+        if (cdr === EMPTY_PAIR) return out + ")";
+        out += " ";
+      } else {
+        return out + ". " + printObject(BigInt(toPrint)) + ")";
+      }
+    }
+  }
+  // print_string quotes the text
+  if (addr >= 4 && r32(addr - 4) === types.get("string")) return `"${goalString(addr)}"`;
   throw new Error(`print: can't print 0x${addr.toString(16)} in the wasm test runtime`);
 }
 
@@ -236,6 +301,29 @@ function format(dest, fmt, ...rest) {
 defineKernelFunction("_format", format);
 defineKernelFunction("format", format);
 
+// pair is a C kernel type; its new method is new_pair: (heap type car cdr) -> pair
+// (car at -2, cdr at +2 from the pair pointer)
+{
+  const pair = internType("pair", 9);
+  w32(pair + 16, makeFunction((heap, type, car, cdr) => {
+    const mem = alloc(8, 8);
+    w32(mem, Number(asUnsigned(car) & 0xffffffffn));
+    w32(mem + 4, Number(asUnsigned(cdr) & 0xffffffffn));
+    return BigInt(mem + PAIR_OFFSET);
+  }));
+}
+
+// print and string->symbol (kscheme.cpp)
+const printFunction = (obj) => {
+  output += printObject(obj);
+  return obj;
+};
+defineKernelFunction("print", printFunction);
+printMethodSlot = makeFunction(printFunction);
+for (const type of types.values()) setPrintMethod(type);
+defineKernelFunction("string->symbol", (str) =>
+  BigInt(ST + intern(goalString(Number(asUnsigned(str) & 0xffffffffn)))));
+
 // kscheme.cpp test_function: s32 arguments and result
 defineKernelFunction("test-function", (a, b, c, d) => {
   const s32 = (v) => BigInt.asIntN(32, v);
@@ -291,8 +379,7 @@ function link(objectBytes) {
         }
       } else if (kind === LINK_TYPE_PTR) {
         const name = readName();
-        p += 1; // method count
-        const type = internType(name);
+        const type = internType(name, objectBytes[p++]); // jak1: the method count
         const count = obj.getUint32(p, true); p += 4;
         for (let i = 0; i < count; i++, p += 4) {
           const at = segBase[seg] + obj.getInt32(p, true);

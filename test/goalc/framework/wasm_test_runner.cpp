@@ -60,10 +60,11 @@ const std::string& WasmTestRunner::node() {
 
 void WasmTestRunner::run_static_test(const std::string& category,
                                      const std::string& file,
-                                     const std::vector<std::string>& expected) {
+                                     const std::vector<std::string>& expected,
+                                     std::optional<int> truncate) {
   auto env = getInjaEnvironment(category);
   env.write(file, {}, file);
-  run_test(category, file, expected);
+  run_test(category, file, expected, truncate);
 }
 
 void WasmTestRunner::run_template_test(const std::string& category,
@@ -78,7 +79,8 @@ void WasmTestRunner::run_template_test(const std::string& category,
 
 void WasmTestRunner::run_test(const std::string& category,
                               const std::string& file,
-                              const std::vector<std::string>& expected) {
+                              const std::vector<std::string>& expected,
+                              std::optional<int> truncate) {
   SCOPED_TRACE(category + "/" + file);
   wasm_backend::WasmObject compiled;
   try {
@@ -106,7 +108,8 @@ void WasmTestRunner::run_test(const std::string& category,
       "\"{}\" \"{}\" --true-offset {} --empty-offset {}{}", node(), script.string(),
       true_symbol_offset(GameVersion::Jak1), empty_pair_offset_from_s7(GameVersion::Jak1), files));
   EXPECT_EQ(result.status, 0) << result.output;
-  EXPECT_EQ(result.output, join(expected));
+  auto output = truncate ? result.output.substr(0, *truncate) : result.output;
+  EXPECT_EQ(output, join(expected));
   if (result.status == 0) {
     m_history.emplace_back(obj_path.string(), wasm_path.string());
   }

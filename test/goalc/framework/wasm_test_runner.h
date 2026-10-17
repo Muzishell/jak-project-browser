@@ -7,6 +7,7 @@
  * templates, same expected output.
  */
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,10 +24,12 @@ class WasmTestRunner {
   //! Node to run modules with: $OPENGOAL_NODE, or node on the PATH. Empty if neither works.
   static const std::string& node();
 
-  //! Write a static template to source_generated, then run it.
+  //! Write a static template to source_generated, then run it. Like CompilerTestRunner,
+  //! truncate compares only the first characters of the output.
   void run_static_test(const std::string& category,
                        const std::string& file,
-                       const std::vector<std::string>& expected);
+                       const std::vector<std::string>& expected,
+                       std::optional<int> truncate = std::nullopt);
   //! Render a template with data to out_file in source_generated, then run it.
   void run_template_test(const std::string& category,
                          const std::string& template_file,
@@ -36,7 +39,8 @@ class WasmTestRunner {
   //! Run a file that is already in source_generated/<category>.
   void run_test(const std::string& category,
                 const std::string& file,
-                const std::vector<std::string>& expected);
+                const std::vector<std::string>& expected,
+                std::optional<int> truncate = std::nullopt);
 
  private:
   Compiler* m_compiler = nullptr;

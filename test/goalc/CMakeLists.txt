@@ -29,7 +29,9 @@ if (OPENGOAL_WASM_BACKEND)
         ${CMAKE_CURRENT_LIST_DIR}/test_wasm_backend.cpp
         ${CMAKE_CURRENT_LIST_DIR}/test_wasm_arithmetic.cpp
         ${CMAKE_CURRENT_LIST_DIR}/test_wasm_vs_native.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_control_statements.cpp)
+        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_control_statements.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_collections.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/test_wasm_variables.cpp)
     list(APPEND GOALC_TEST_FRAMEWORK_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/framework/wasm_test_runner.cpp
         ${CMAKE_CURRENT_LIST_DIR}/framework/wasm_test_runner.h)
