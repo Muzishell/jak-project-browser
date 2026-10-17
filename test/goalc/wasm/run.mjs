@@ -236,6 +236,12 @@ function format(dest, fmt, ...rest) {
 defineKernelFunction("_format", format);
 defineKernelFunction("format", format);
 
+// kscheme.cpp test_function: s32 arguments and result
+defineKernelFunction("test-function", (a, b, c, d) => {
+  const s32 = (v) => BigInt.asIntN(32, v);
+  return BigInt.asIntN(32, s32(a) + 2n * s32(b) + 3n * s32(c) + 4n * s32(d));
+});
+
 // ---- linker for v3 object files (see klink.cpp jak1_work_v3) ----
 const LINK_TABLE_END = 0, LINK_SYMBOL_OFFSET = 1, LINK_TYPE_PTR = 2, LINK_PTR = 5;
 const N_SEG = 3, TOP_LEVEL_SEGMENT = 2;
