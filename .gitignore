@@ -13,6 +13,8 @@ cmake-build-debug--o0/*
 build/
 build-debug/
 build.master/
+# Emscripten build (CLAUDE.MD)
+build-wasm/
 /decompiler_out*
 logs/*
 profile_data/*

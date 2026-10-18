@@ -9,6 +9,13 @@
 
 #include "fmt/format.h"
 
+#ifdef __EMSCRIPTEN__
+#include <algorithm>
+#include <cstring>
+
+#include "wasm/goal_call.h"
+#endif
+
 void flush_icache_for_linked_object(const ObjectFileHeader* ofh) {
   // link state 0 turns code_infos file offsets into heap addresses
   for (int seg = 0; seg < N_SEG; seg++) {
@@ -125,6 +132,21 @@ void link_control::jak1_jak2_begin(Ptr<uint8_t> object_file,
       // seek past the header
       m_object_data.offset += ofh->link_block_length;
       // todo, set m_code_size
+
+#ifdef __EMSCRIPTEN__
+      // the module size and the wasm module follow the last segment's data
+      // (goalc/compiler/wasm/WasmObject.h). Compile it before the data moves.
+      u32 data_end = 0;
+      for (int seg = 0; seg < N_SEG; seg++) {
+        data_end = std::max(data_end, ofh->code_infos[seg].offset + ofh->code_infos[seg].size);
+      }
+      const u8* wasm = (m_object_data + data_end).c();
+      u32 wasm_size;
+      memcpy(&wasm_size, wasm, 4);
+      ASSERT_MSG(!memcmp(wasm + 4, "\0asm", 4),
+                 fmt::format("object file {} has no wasm module", name));
+      m_wasm_module = wasm_goal::compile_module(wasm + 4, wasm_size, &m_wasm_table_base);
+#endif
 
       if (m_link_block_ptr.offset < m_heap->base.offset ||
           m_link_block_ptr.offset >= m_heap->top.offset) {

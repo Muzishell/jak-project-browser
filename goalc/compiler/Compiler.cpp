@@ -16,6 +16,10 @@
 #include "goalc/regalloc/Allocator.h"
 #include "goalc/regalloc/Allocator_v2.h"
 
+#ifdef OPENGOAL_WASM_BACKEND
+#include "goalc/compiler/wasm/WasmCodeGenerator.h"
+#endif
+
 #include "fmt/format.h"
 
 using namespace goos;
@@ -40,6 +44,8 @@ Compiler::Compiler(GameVersion version,
 
   // let the build system run us
   m_make.add_tool(std::make_shared<CompilerTool>(this));
+  // wasm builds keep their outputs apart from native ones (see game.gp)
+  m_make.set_constant("*wasm-target*", m_instr_set == emitter::InstructionSet::WASM);
 
   // define game version before loading goal-lib.gc
   m_goos.set_global_variable_by_name("GAME_VERSION", m_goos.intern(game_version_names[m_version]));
@@ -313,6 +319,18 @@ void Compiler::color_object_file(FileEnv* env) {
 }
 
 std::vector<u8> Compiler::codegen_object_file(FileEnv* env) {
+#ifdef OPENGOAL_WASM_BACKEND
+  if (m_instr_set == emitter::InstructionSet::WASM) {
+    try {
+      wasm_backend::WasmModuleGen gen(m_version);
+      auto result = gen.run(env, &m_ts);
+      env->cleanup_after_codegen();
+      return wasm_backend::pack_wasm_object(result);
+    } catch (std::exception& e) {
+      throw_compiler_error_no_code("Error during wasm codegen of {}: {}", env->name(), e.what());
+    }
+  }
+#endif
   try {
     auto debug_info = &m_debugger.get_debug_info_for_object(env->name());
     debug_info->clear();

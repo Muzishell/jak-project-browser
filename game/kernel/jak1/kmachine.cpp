@@ -20,6 +20,7 @@
 #include "game/graphics/gfx.h"
 #include "game/graphics/sceGraphicsInterface.h"
 #include "game/kernel/common/fileio.h"
+#include "game/kernel/common/goal_c_function.h"
 #include "game/kernel/common/kboot.h"
 #include "game/kernel/common/kdgo.h"
 #include "game/kernel/common/kdsnetm.h"
@@ -553,9 +554,9 @@ void InitMachine_PCPort() {
   // Game specific functions
   // Called from the game thread at each frame to tell the PC rendering code which levels to start
   // loading. The loader internally handles locking.
-  make_function_symbol_from_c("__pc-set-levels", (void*)pc_set_levels);
+  make_function_symbol_from_c("__pc-set-levels", GOAL_C_FUNC(pc_set_levels));
 
-  make_function_symbol_from_c("pc-discord-rpc-update", (void*)update_discord_rpc);
+  make_function_symbol_from_c("pc-discord-rpc-update", GOAL_C_FUNC(update_discord_rpc));
 
   // setup string constants
   // TODO - these may be able to be moved into `init_common_pc_port_functions` but it's trickier
@@ -576,36 +577,38 @@ void InitMachine_PCPort() {
  * which should prepare the game engine.
  */
 void InitMachineScheme() {
-  make_function_symbol_from_c("put-display-env", (void*)PutDisplayEnv);       // used in drawable
-  make_function_symbol_from_c("syncv", (void*)sceGsSyncV);                    // used in drawable
-  make_function_symbol_from_c("sync-path", (void*)sceGsSyncPath);             // used
-  make_function_symbol_from_c("reset-path", (void*)sceGsResetPath);           // used in dma
-  make_function_symbol_from_c("reset-graph", (void*)sceGsResetGraph);         // used
-  make_function_symbol_from_c("dma-sync", (void*)sceDmaSync);                 // used
-  make_function_symbol_from_c("gs-put-imr", (void*)sceGsPutIMR);              // unused
-  make_function_symbol_from_c("gs-get-imr", (void*)sceGsGetIMR);              // unused
-  make_function_symbol_from_c("gs-store-image", (void*)sceGsExecStoreImage);  // used
-  make_function_symbol_from_c("flush-cache", (void*)FlushCache);              // used
-  make_function_symbol_from_c("cpad-open", (void*)CPadOpen);                  // used
-  make_function_symbol_from_c("cpad-get-data", (void*)CPadGetData);           // used
-  make_function_symbol_from_c("install-handler", (void*)InstallHandler);      // used
-  make_function_symbol_from_c("install-debug-handler", (void*)InstallDebugHandler);       // used
-  make_function_symbol_from_c("file-stream-open", (void*)kopen);                          // used
-  make_function_symbol_from_c("file-stream-close", (void*)kclose);                        // used
-  make_function_symbol_from_c("file-stream-length", (void*)klength);                      // used
-  make_function_symbol_from_c("file-stream-seek", (void*)kseek);                          // unused
-  make_function_symbol_from_c("file-stream-read", (void*)kread);                          // used
-  make_function_symbol_from_c("file-stream-write", (void*)kwrite);                        // used
-  make_function_symbol_from_c("scf-get-language", (void*)DecodeLanguage);                 // used
-  make_function_symbol_from_c("scf-get-time", (void*)DecodeTime);                         // used
-  make_function_symbol_from_c("scf-get-aspect", (void*)DecodeAspect);                     // used
-  make_function_symbol_from_c("scf-get-volume", (void*)DecodeVolume);                     // used
-  make_function_symbol_from_c("scf-get-territory", (void*)DecodeTerritory);               // used
-  make_function_symbol_from_c("scf-get-timeout", (void*)DecodeTimeout);                   // used
-  make_function_symbol_from_c("scf-get-inactive-timeout", (void*)DecodeInactiveTimeout);  // used
-  make_function_symbol_from_c("dma-to-iop", (void*)dma_to_iop);                           // unused
-  make_function_symbol_from_c("kernel-shutdown", (void*)jak1::KernelShutdown);  // used TODO jak1
-  make_function_symbol_from_c("aybabtu", (void*)sceCdMmode);                    // used
+  make_function_symbol_from_c("put-display-env", GOAL_C_FUNC(PutDisplayEnv));  // used in drawable
+  make_function_symbol_from_c("syncv", GOAL_C_FUNC(sceGsSyncV));               // used in drawable
+  make_function_symbol_from_c("sync-path", GOAL_C_FUNC(sceGsSyncPath));        // used
+  make_function_symbol_from_c("reset-path", GOAL_C_FUNC(sceGsResetPath));      // used in dma
+  make_function_symbol_from_c("reset-graph", GOAL_C_FUNC(sceGsResetGraph));    // used
+  make_function_symbol_from_c("dma-sync", GOAL_C_FUNC(sceDmaSync));            // used
+  make_function_symbol_from_c("gs-put-imr", GOAL_C_FUNC(sceGsPutIMR));         // unused
+  make_function_symbol_from_c("gs-get-imr", GOAL_C_FUNC(sceGsGetIMR));         // unused
+  make_function_symbol_from_c("gs-store-image", GOAL_C_FUNC(sceGsExecStoreImage));         // used
+  make_function_symbol_from_c("flush-cache", GOAL_C_FUNC(FlushCache));                     // used
+  make_function_symbol_from_c("cpad-open", GOAL_C_FUNC(CPadOpen));                         // used
+  make_function_symbol_from_c("cpad-get-data", GOAL_C_FUNC(CPadGetData));                  // used
+  make_function_symbol_from_c("install-handler", GOAL_C_FUNC(InstallHandler));             // used
+  make_function_symbol_from_c("install-debug-handler", GOAL_C_FUNC(InstallDebugHandler));  // used
+  make_function_symbol_from_c("file-stream-open", GOAL_C_FUNC(kopen));                     // used
+  make_function_symbol_from_c("file-stream-close", GOAL_C_FUNC(kclose));                   // used
+  make_function_symbol_from_c("file-stream-length", GOAL_C_FUNC(klength));                 // used
+  make_function_symbol_from_c("file-stream-seek", GOAL_C_FUNC(kseek));                     // unused
+  make_function_symbol_from_c("file-stream-read", GOAL_C_FUNC(kread));                     // used
+  make_function_symbol_from_c("file-stream-write", GOAL_C_FUNC(kwrite));                   // used
+  make_function_symbol_from_c("scf-get-language", GOAL_C_FUNC(DecodeLanguage));            // used
+  make_function_symbol_from_c("scf-get-time", GOAL_C_FUNC(DecodeTime));                    // used
+  make_function_symbol_from_c("scf-get-aspect", GOAL_C_FUNC(DecodeAspect));                // used
+  make_function_symbol_from_c("scf-get-volume", GOAL_C_FUNC(DecodeVolume));                // used
+  make_function_symbol_from_c("scf-get-territory", GOAL_C_FUNC(DecodeTerritory));          // used
+  make_function_symbol_from_c("scf-get-timeout", GOAL_C_FUNC(DecodeTimeout));              // used
+  make_function_symbol_from_c("scf-get-inactive-timeout",
+                              GOAL_C_FUNC(DecodeInactiveTimeout));     // used
+  make_function_symbol_from_c("dma-to-iop", GOAL_C_FUNC(dma_to_iop));  // unused
+  make_function_symbol_from_c("kernel-shutdown",
+                              GOAL_C_FUNC(jak1::KernelShutdown));   // used TODO jak1
+  make_function_symbol_from_c("aybabtu", GOAL_C_FUNC(sceCdMmode));  // used
 
   InitMachine_PCPort();
   InitSoundScheme();

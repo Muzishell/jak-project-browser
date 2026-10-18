@@ -72,10 +72,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; NOTE: the game itself will load from out/jak1/iso and out/jak1/fr3.
-(map-path! "$OUT" "out/jak1/")
-
 ;; tell the compiler to put its outputs in out/jak1/
-(set-output-prefix "jak1/")
+;; (or out/jak1-wasm/ for goalc --instruction-set wasm, so native objects are never overwritten)
+(cond
+  (*wasm-target*
+   (map-path! "$OUT" "out/jak1-wasm/")
+   (set-output-prefix "jak1-wasm/"))
+  (#t
+   (map-path! "$OUT" "out/jak1/")
+   (set-output-prefix "jak1/")))
 
 ;; use defmacro to define goos macros.
 (define defmacro defsmacro)

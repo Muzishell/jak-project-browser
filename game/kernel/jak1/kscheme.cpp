@@ -9,6 +9,7 @@
 
 #include "game/kernel/common/codegen.h"
 #include "game/kernel/common/fileio.h"
+#include "game/kernel/common/goal_c_function.h"
 #include "game/kernel/common/kdgo.h"
 #include "game/kernel/common/kdsnetm.h"
 #include "game/kernel/common/klink.h"
@@ -23,6 +24,10 @@
 #include "game/kernel/jak1/kmachine.h"
 #include "game/kernel/jak1/kprint.h"
 #include "game/mips2c/mips2c_table.h"
+
+#ifdef __EMSCRIPTEN__
+#include "fmt/format.h"
+#endif
 
 using namespace jak1_symbols;
 
@@ -517,8 +522,34 @@ Ptr<Function> make_stack_arg_function_from_c_win32(void* func) {
  *
  * The implementation is to create a simple trampoline function which jumps to the C function.
  */
+#ifdef __EMSCRIPTEN__
+/*!
+ * Called by kernel code that needs what the wasm runtime doesn't have yet (thread suspend/resume,
+ * throw). name is a GOAL string.
+ */
+void wasm_unimplemented(u32 name) {
+  ASSERT_MSG(false,
+             fmt::format("{} is not supported by the wasm runtime yet", Ptr<String>(name)->data()));
+}
+
+/*!
+ * A GOAL function object whose code is a C++ function of type wasm_goal::GoalFunc: the slot after
+ * the type tag holds its table index, like the functions of the wasm GOAL modules.
+ */
+Ptr<Function> make_function_from_wasm(void* func) {
+  auto mem = Ptr<u8>(alloc_heap_object(s7.offset + FIX_SYM_GLOBAL_HEAP,
+                                       *(s7 + FIX_SYM_FUNCTION_TYPE), 8, UNKNOWN_PP));
+  wasm_goal::set_goal_function(mem.offset, func);
+  return mem.cast<Function>();
+}
+#endif
+
 Ptr<Function> make_function_from_c(void* func, bool arg3_is_pp = false) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+  // func is a GOAL_C_FUNC / GOAL_C_FUNC_PP adapter, which already puts pp in arg 3
+  (void)arg3_is_pp;
+  return make_function_from_wasm(func);
+#elif defined __linux__
   return make_function_from_c_systemv(func, arg3_is_pp);
 #elif __APPLE__
   return make_function_from_c_systemv(func, arg3_is_pp);
@@ -528,7 +559,10 @@ Ptr<Function> make_function_from_c(void* func, bool arg3_is_pp = false) {
 }
 
 Ptr<Function> make_stack_arg_function_from_c(void* func) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+  // func is a GOAL_C_STACK_FUNC adapter
+  return make_function_from_wasm(func);
+#elif defined __linux__
   return make_stack_arg_function_from_c_systemv(func);
 #elif __APPLE__
   return make_stack_arg_function_from_c_systemv(func);
@@ -541,6 +575,9 @@ Ptr<Function> make_stack_arg_function_from_c(void* func) {
  * Create a GOAL function which does nothing and immediately returns.
  */
 Ptr<Function> make_nothing_func() {
+#ifdef __EMSCRIPTEN__
+  return make_function_from_wasm((void*)&wasm_goal::nothing_func);
+#endif
   auto mem = Ptr<u8>(alloc_heap_object(s7.offset + FIX_SYM_GLOBAL_HEAP,
                                        *(s7 + FIX_SYM_FUNCTION_TYPE), 0x14, UNKNOWN_PP));
 
@@ -554,6 +591,9 @@ Ptr<Function> make_nothing_func() {
  * Create a GOAL function which returns 0.
  */
 Ptr<Function> make_zero_func() {
+#ifdef __EMSCRIPTEN__
+  return make_function_from_wasm((void*)&wasm_goal::zero_func);
+#endif
   auto mem = Ptr<u8>(alloc_heap_object(s7.offset + FIX_SYM_GLOBAL_HEAP,
                                        *(s7 + FIX_SYM_FUNCTION_TYPE), 0x14, UNKNOWN_PP));
   const int written = emit_zero_stub(mem.c());
@@ -1495,12 +1535,12 @@ s32 InitHeapAndSymbol() {
   set_fixed_symbol(FIX_SYM_NOTHING_FUNC, "nothing", make_nothing_func().offset);
   set_fixed_symbol(FIX_SYM_ZERO_FUNC, "zero-func", make_zero_func().offset);
   set_fixed_symbol(FIX_SYM_ASIZE_OF_BASIC_FUNC, "asize-of-basic-func",
-                   make_function_from_c((void*)asize_of_basic).offset);
+                   make_function_from_c(GOAL_C_FUNC(asize_of_basic)).offset);
   // NOTE: this is a typo in the game too.
   set_fixed_symbol(FIX_SYM_COPY_BASIC_FUNC, "asize-of-basic-func",
-                   make_function_from_c((void*)copy_basic, true).offset);
+                   make_function_from_c(GOAL_C_FUNC_PP(copy_basic), true).offset);
   set_fixed_symbol(FIX_SYM_DEL_BASIC_FUNC, "delete-basic",
-                   make_function_from_c((void*)delete_basic).offset);
+                   make_function_from_c(GOAL_C_FUNC(delete_basic)).offset);
 
   // heap symbols
   set_fixed_symbol(FIX_SYM_GLOBAL_HEAP, "global", kglobalheap.offset);
@@ -1523,37 +1563,37 @@ s32 InitHeapAndSymbol() {
   set_fixed_symbol(FIX_SYM_TOP_LEVEL, "top-level", *(s7 + FIX_SYM_NOTHING_FUNC));
 
   // OBJECT type
-  auto new_illegal_func = make_function_from_c((void*)new_illegal);
-  auto delete_illegal_func = make_function_from_c((void*)delete_illegal);
-  auto print_object_func = make_function_from_c((void*)print_object);
-  auto inspect_object_func = make_function_from_c((void*)inspect_object);
+  auto new_illegal_func = make_function_from_c(GOAL_C_FUNC(new_illegal));
+  auto delete_illegal_func = make_function_from_c(GOAL_C_FUNC(delete_illegal));
+  auto print_object_func = make_function_from_c(GOAL_C_FUNC(print_object));
+  auto inspect_object_func = make_function_from_c(GOAL_C_FUNC(inspect_object));
   set_fixed_type(FIX_SYM_OBJECT_TYPE, "object", (s7 + FIX_SYM_OBJECT_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 4), print_object_func.offset, inspect_object_func.offset);
   auto object_type = Ptr<Type>(*(s7 + FIX_SYM_OBJECT_TYPE));
   object_type->new_method = new_illegal_func;
   object_type->delete_method = delete_illegal_func;
   object_type->asize_of_method.offset = *(s7 + FIX_SYM_ZERO_FUNC);
-  auto copy_fixed_function = make_function_from_c((void*)copy_fixed);
+  auto copy_fixed_function = make_function_from_c(GOAL_C_FUNC(copy_fixed));
   object_type->copy_method = copy_fixed_function;
 
   // STRUCTURE type
-  auto print_structure_func = make_function_from_c((void*)print_structure);
-  auto inspect_structure_func = make_function_from_c((void*)inspect_structure);
+  auto print_structure_func = make_function_from_c(GOAL_C_FUNC(print_structure));
+  auto inspect_structure_func = make_function_from_c(GOAL_C_FUNC(inspect_structure));
   set_fixed_type(FIX_SYM_STRUCTURE_TYPE, "structure", (s7 + FIX_SYM_OBJECT_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 4), print_structure_func.offset,
                  inspect_structure_func.offset);
-  auto new_structure_func = make_function_from_c((void*)new_structure);
-  auto delete_structure_func = make_function_from_c((void*)delete_structure);
+  auto new_structure_func = make_function_from_c(GOAL_C_FUNC(new_structure));
+  auto delete_structure_func = make_function_from_c(GOAL_C_FUNC(delete_structure));
   auto structureType = Ptr<Type>(*(s7 + FIX_SYM_STRUCTURE_TYPE));
   structureType->new_method = new_structure_func;
   structureType->delete_method = delete_structure_func;
 
   // BASIC type
-  auto print_basic_func = make_function_from_c((void*)print_basic);
-  auto inspect_basic_function = make_function_from_c((void*)inspect_basic);
+  auto print_basic_func = make_function_from_c(GOAL_C_FUNC(print_basic));
+  auto inspect_basic_function = make_function_from_c(GOAL_C_FUNC(inspect_basic));
   set_fixed_type(FIX_SYM_BASIC_TYPE, "basic", (s7 + FIX_SYM_STRUCTURE_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 4), print_basic_func.offset, inspect_basic_function.offset);
-  auto new_basic_func = make_function_from_c((void*)new_basic, true);
+  auto new_basic_func = make_function_from_c(GOAL_C_FUNC_PP(new_basic), true);
   auto basicType = Ptr<Type>(*(s7 + FIX_SYM_BASIC_TYPE));
   basicType->new_method = new_basic_func;
   basicType->delete_method.offset = *(s7 + FIX_SYM_DEL_BASIC_FUNC);
@@ -1561,8 +1601,8 @@ s32 InitHeapAndSymbol() {
   basicType->copy_method.offset = *(s7 + FIX_SYM_COPY_BASIC_FUNC);
 
   // SYMBOL type
-  auto print_symbol_func = make_function_from_c((void*)print_symbol);
-  auto inspect_symbol_func = make_function_from_c((void*)inspect_symbol);
+  auto print_symbol_func = make_function_from_c(GOAL_C_FUNC(print_symbol));
+  auto inspect_symbol_func = make_function_from_c(GOAL_C_FUNC(inspect_symbol));
   set_fixed_type(FIX_SYM_SYMBOL_TYPE, "symbol", (s7 + FIX_SYM_BASIC_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), print_symbol_func.offset, inspect_symbol_func.offset);
   auto symbolType = Ptr<Type>(*(s7 + FIX_SYM_SYMBOL_TYPE));
@@ -1570,35 +1610,35 @@ s32 InitHeapAndSymbol() {
   symbolType->delete_method = delete_illegal_func;
 
   // TYPE type
-  auto print_type_func = make_function_from_c((void*)print_type);
-  auto inspect_type_func = make_function_from_c((void*)inspect_type);
+  auto print_type_func = make_function_from_c(GOAL_C_FUNC(print_type));
+  auto inspect_type_func = make_function_from_c(GOAL_C_FUNC(inspect_type));
   set_fixed_type(FIX_SYM_TYPE_TYPE, "type", (s7 + FIX_SYM_BASIC_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 0x38), print_type_func.offset, inspect_type_func.offset);
   auto typeType = Ptr<Type>(*(s7 + FIX_SYM_TYPE_TYPE));
-  auto new_type_func = make_function_from_c((void*)new_type);
+  auto new_type_func = make_function_from_c(GOAL_C_FUNC(new_type));
   typeType->new_method = new_type_func;
   typeType->delete_method = delete_illegal_func;
 
   // STRING type
-  auto print_string_func = make_function_from_c((void*)print_string);
-  auto inspect_string_func = make_function_from_c((void*)inspect_string);
+  auto print_string_func = make_function_from_c(GOAL_C_FUNC(print_string));
+  auto inspect_string_func = make_function_from_c(GOAL_C_FUNC(inspect_string));
   set_fixed_type(FIX_SYM_STRING_TYPE, "string", (s7 + FIX_SYM_BASIC_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), print_string_func.offset, inspect_string_func.offset);
 
   // FUNCTION type
-  auto print_function_func = make_function_from_c((void*)print_function);
+  auto print_function_func = make_function_from_c(GOAL_C_FUNC(print_function));
   set_fixed_type(FIX_SYM_FUNCTION_TYPE, "function", (s7 + FIX_SYM_BASIC_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 4), print_function_func.offset, 0);
 
   // VU FUNCTION type
-  auto print_vu_function_func = make_function_from_c((void*)print_vu_function);
-  auto inspect_vu_function_func = make_function_from_c((void*)inspect_vu_function);
+  auto print_vu_function_func = make_function_from_c(GOAL_C_FUNC(print_vu_function));
+  auto inspect_vu_function_func = make_function_from_c(GOAL_C_FUNC(inspect_vu_function));
   set_fixed_type(FIX_SYM_VU_FUNCTION_TYPE, "vu-function",
                  (s7 + FIX_SYM_STRUCTURE_TYPE).cast<Symbol>(), pack_type_flag(9, 0, 0x10),
                  print_vu_function_func.offset, inspect_vu_function_func.offset);
 
   // LINK BLOCK type
-  auto inspect_link_block_func = make_function_from_c((void*)inspect_link_block);
+  auto inspect_link_block_func = make_function_from_c(GOAL_C_FUNC(inspect_link_block));
   set_fixed_type(FIX_SYM_LINK_BLOCK, "link-block", (s7 + FIX_SYM_BASIC_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 0xc), 0, inspect_link_block_func.offset);
   auto linkBlockType = Ptr<Type>(*(s7 + FIX_SYM_LINK_BLOCK));
@@ -1606,7 +1646,7 @@ s32 InitHeapAndSymbol() {
   linkBlockType->delete_method = delete_illegal_func;
 
   // KHEAP
-  auto inspect_kheap_func = make_function_from_c((void*)inspect_kheap);
+  auto inspect_kheap_func = make_function_from_c(GOAL_C_FUNC(inspect_kheap));
   set_fixed_type(FIX_SYM_KHEAP, "kheap", (s7 + FIX_SYM_STRUCTURE_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 0x10), 0, inspect_kheap_func.offset);
 
@@ -1615,13 +1655,13 @@ s32 InitHeapAndSymbol() {
                  pack_type_flag(9, 0, 0x10), 0, 0);
 
   // PAIR
-  auto print_pair_func = make_function_from_c((void*)print_pair);
-  auto inspect_pair_func = make_function_from_c((void*)inspect_pair);
+  auto print_pair_func = make_function_from_c(GOAL_C_FUNC(print_pair));
+  auto inspect_pair_func = make_function_from_c(GOAL_C_FUNC(inspect_pair));
   set_fixed_type(FIX_SYM_PAIR_TYPE, "pair", (s7 + FIX_SYM_OBJECT_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), print_pair_func.offset, inspect_pair_func.offset);
   auto pairType = Ptr<Type>(*(s7 + FIX_SYM_PAIR_TYPE));
-  auto new_pair_func = make_function_from_c((void*)new_pair);
-  auto delete_pair_func = make_function_from_c((void*)delete_pair);
+  auto new_pair_func = make_function_from_c(GOAL_C_FUNC(new_pair));
+  auto delete_pair_func = make_function_from_c(GOAL_C_FUNC(delete_pair));
   pairType->new_method = new_pair_func;
   pairType->delete_method = delete_pair_func;
 
@@ -1644,21 +1684,21 @@ s32 InitHeapAndSymbol() {
                  pack_type_flag(9, 0, 4), 0, 0);
 
   // NUMERIC TYPES
-  auto print_integer_func = make_function_from_c((void*)print_integer);
-  auto inspect_integer_func = make_function_from_c((void*)inspect_integer);
+  auto print_integer_func = make_function_from_c(GOAL_C_FUNC(print_integer));
+  auto inspect_integer_func = make_function_from_c(GOAL_C_FUNC(inspect_integer));
   set_fixed_type(FIX_SYM_NUMBER_TYPE, "number", (s7 + FIX_SYM_OBJECT_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), print_integer_func.offset, inspect_integer_func.offset);
 
-  auto print_float_func = make_function_from_c((void*)print_float);
-  auto inspect_float_func = make_function_from_c((void*)inspect_float);
+  auto print_float_func = make_function_from_c(GOAL_C_FUNC(print_float));
+  auto inspect_float_func = make_function_from_c(GOAL_C_FUNC(inspect_float));
   set_fixed_type(FIX_SYM_FLOAT_TYPE, "float", (s7 + FIX_SYM_NUMBER_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 4), print_float_func.offset, inspect_float_func.offset);
 
   set_fixed_type(FIX_SYM_INTEGER_TYPE, "integer", (s7 + FIX_SYM_NUMBER_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), 0, 0);
 
-  auto print_binteger_func = make_function_from_c((void*)print_binteger);
-  auto inspect_binteger_func = make_function_from_c((void*)inspect_binteger);
+  auto print_binteger_func = make_function_from_c(GOAL_C_FUNC(print_binteger));
+  auto inspect_binteger_func = make_function_from_c(GOAL_C_FUNC(inspect_binteger));
   set_fixed_type(FIX_SYM_BINTEGER_TYPE, "binteger", (s7 + FIX_SYM_INTEGER_TYPE).cast<Symbol>(),
                  pack_type_flag(9, 0, 8), print_binteger_func.offset, inspect_binteger_func.offset);
 
@@ -1689,31 +1729,31 @@ s32 InitHeapAndSymbol() {
                  pack_type_flag(9, 0, 0x10), 0, 0);
 
   // Object new macro
-  auto goal_new_object_func = make_function_from_c((void*)alloc_heap_object, true);
+  auto goal_new_object_func = make_function_from_c(GOAL_C_FUNC_PP(alloc_heap_object), true);
   object_type->new_method = goal_new_object_func;
 
   // Stuff that isn't in a fixed spot:
-  make_function_symbol_from_c("string->symbol", (void*)intern);
-  make_function_symbol_from_c("print", (void*)sprint);
-  make_function_symbol_from_c("inspect", (void*)inspect_object);
+  make_function_symbol_from_c("string->symbol", GOAL_C_FUNC(intern));
+  make_function_symbol_from_c("print", GOAL_C_FUNC(sprint));
+  make_function_symbol_from_c("inspect", GOAL_C_FUNC(inspect_object));
 
   // loads
-  make_function_symbol_from_c("load", (void*)load);
-  make_function_symbol_from_c("loado", (void*)loado);
-  make_function_symbol_from_c("unload", (void*)unload);
-  make_stack_arg_function_symbol_from_c("_format", (void*)format_impl_jak1);
+  make_function_symbol_from_c("load", GOAL_C_FUNC(load));
+  make_function_symbol_from_c("loado", GOAL_C_FUNC(loado));
+  make_function_symbol_from_c("unload", GOAL_C_FUNC(unload));
+  make_stack_arg_function_symbol_from_c("_format", GOAL_C_STACK_FUNC(format_impl_jak1));
 
   // allocations
-  make_function_symbol_from_c("malloc", (void*)alloc_heap_memory);
-  make_function_symbol_from_c("kmalloc", (void*)goal_malloc);
-  make_function_symbol_from_c("new-dynamic-structure", (void*)new_dynamic_structure);
+  make_function_symbol_from_c("malloc", GOAL_C_FUNC(alloc_heap_memory));
+  make_function_symbol_from_c("kmalloc", GOAL_C_FUNC(goal_malloc));
+  make_function_symbol_from_c("new-dynamic-structure", GOAL_C_FUNC(new_dynamic_structure));
 
   // type system
-  make_function_symbol_from_c("method-set!", (void*)method_set);
+  make_function_symbol_from_c("method-set!", GOAL_C_FUNC(method_set));
 
   // dgo
-  make_stack_arg_function_symbol_from_c("link", (void*)link_and_exec_wrapper);
-  make_function_symbol_from_c("dgo-load", (void*)load_and_link_dgo);
+  make_stack_arg_function_symbol_from_c("link", GOAL_C_STACK_FUNC(link_and_exec_wrapper));
+  make_function_symbol_from_c("dgo-load", GOAL_C_FUNC(load_and_link_dgo));
 
   // forward declare
   make_raw_function_symbol_from_c("ultimate-memcpy", 0);
@@ -1722,18 +1762,22 @@ s32 InitHeapAndSymbol() {
   make_raw_function_symbol_from_c("symlink3", 0);
 
   // game stuff
-  make_stack_arg_function_symbol_from_c("link-begin", (void*)link_begin);
-  make_function_symbol_from_c("link-resume", (void*)link_resume);
-  make_function_symbol_from_c("mc-run", (void*)MC_run);
-  make_function_symbol_from_c("mc-format", (void*)MC_format);
-  make_function_symbol_from_c("mc-unformat", (void*)MC_unformat);
-  make_function_symbol_from_c("mc-create-file", (void*)MC_createfile);
-  make_function_symbol_from_c("mc-save", (void*)MC_save);
-  make_function_symbol_from_c("mc-load", (void*)MC_load);
-  make_function_symbol_from_c("mc-check-result", (void*)MC_check_result);
-  make_function_symbol_from_c("mc-get-slot-info", (void*)MC_get_status);
-  make_function_symbol_from_c("mc-makefile", (void*)MC_makefile);
-  make_function_symbol_from_c("kset-language", (void*)MC_set_language);
+#ifdef __EMSCRIPTEN__
+  // kernel features the wasm runtime can't run yet (INSTRUCTION_SET 'wasm in gkernel.gc)
+  make_function_symbol_from_c("wasm-unimplemented", GOAL_C_FUNC(wasm_unimplemented));
+#endif
+  make_stack_arg_function_symbol_from_c("link-begin", GOAL_C_STACK_FUNC(link_begin));
+  make_function_symbol_from_c("link-resume", GOAL_C_FUNC(link_resume));
+  make_function_symbol_from_c("mc-run", GOAL_C_FUNC(MC_run));
+  make_function_symbol_from_c("mc-format", GOAL_C_FUNC(MC_format));
+  make_function_symbol_from_c("mc-unformat", GOAL_C_FUNC(MC_unformat));
+  make_function_symbol_from_c("mc-create-file", GOAL_C_FUNC(MC_createfile));
+  make_function_symbol_from_c("mc-save", GOAL_C_FUNC(MC_save));
+  make_function_symbol_from_c("mc-load", GOAL_C_FUNC(MC_load));
+  make_function_symbol_from_c("mc-check-result", GOAL_C_FUNC(MC_check_result));
+  make_function_symbol_from_c("mc-get-slot-info", GOAL_C_FUNC(MC_get_status));
+  make_function_symbol_from_c("mc-makefile", GOAL_C_FUNC(MC_makefile));
+  make_function_symbol_from_c("kset-language", GOAL_C_FUNC(MC_set_language));
 
   // set *debug-segment*
   auto ds_symbol = intern_from_c("*debug-segment*");
@@ -1786,7 +1830,7 @@ s32 InitHeapAndSymbol() {
   jak1::InitMachineScheme();
 
   // testing stuff:
-  make_function_symbol_from_c("test-function", (void*)test_function);
+  make_function_symbol_from_c("test-function", GOAL_C_FUNC(test_function));
 
   return 0;
 }

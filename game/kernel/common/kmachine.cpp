@@ -15,6 +15,7 @@
 #include "game/graphics/gfx.h"
 #include "game/graphics/screenshot.h"
 #include "game/kernel/common/Ptr.h"
+#include "game/kernel/common/goal_c_function.h"
 #include "game/kernel/common/kernel_types.h"
 #include "game/kernel/common/kprint.h"
 #include "game/kernel/common/kscheme.h"
@@ -1112,124 +1113,131 @@ void init_common_pc_port_functions(
   g_pc_port_funcs.intern_from_c = intern_from_c_func;
   g_pc_port_funcs.make_string_from_c = make_string_from_c_func;
   // Get a 300MHz timer value. Called from EE thread
-  make_func_symbol_func("__read-ee-timer", (void*)read_ee_timer);
+  make_func_symbol_func("__read-ee-timer", GOAL_C_FUNC(read_ee_timer));
   // Do a fast memory copy.
-  make_func_symbol_func("__mem-move", (void*)pc_memmove);
+  make_func_symbol_func("__mem-move", GOAL_C_FUNC(pc_memmove));
   // Called from game thread to submit rendering DMA chain.
-  make_func_symbol_func("__send-gfx-dma-chain", (void*)send_gfx_dma_chain);
+  make_func_symbol_func("__send-gfx-dma-chain", GOAL_C_FUNC(send_gfx_dma_chain));
   // Called from game thread to upload a texture outside of the main DMA chain.
-  make_func_symbol_func("__pc-texture-upload-now", (void*)pc_texture_upload_now);
-  make_func_symbol_func("__pc-texture-relocate", (void*)pc_texture_relocate);
+  make_func_symbol_func("__pc-texture-upload-now", GOAL_C_FUNC(pc_texture_upload_now));
+  make_func_symbol_func("__pc-texture-relocate", GOAL_C_FUNC(pc_texture_relocate));
   // Called from the game thread at initialization. The game thread is the only one to touch the
   // mips2c function table (through the linker and ugh this function), so no locking is needed.
-  make_func_symbol_func("__pc-get-mips2c", (void*)pc_get_mips2c);
-  make_func_symbol_func("__pc-force-reload-all-levels", (void*)pc_force_reload_all);
-  make_func_symbol_func("__pc-force-reload-level", (void*)pc_force_reload_level);
-  make_func_symbol_func("__pc-force-reload-common-level", (void*)pc_force_reload_common);
+  make_func_symbol_func("__pc-get-mips2c", GOAL_C_FUNC(pc_get_mips2c));
+  make_func_symbol_func("__pc-force-reload-all-levels", GOAL_C_FUNC(pc_force_reload_all));
+  make_func_symbol_func("__pc-force-reload-level", GOAL_C_FUNC(pc_force_reload_level));
+  make_func_symbol_func("__pc-force-reload-common-level", GOAL_C_FUNC(pc_force_reload_common));
 
   // -- DISPLAY RELATED --
   // Returns the name of the display with the given id or #f if not found / empty
-  make_func_symbol_func("pc-get-display-id", (void*)pc_get_display_id);
-  make_func_symbol_func("pc-set-display-id!", (void*)pc_set_display_id);
-  make_func_symbol_func("pc-get-display-name", (void*)pc_get_display_name);
-  make_func_symbol_func("pc-get-display-mode", (void*)pc_get_display_mode);
-  make_func_symbol_func("pc-set-display-mode!", (void*)pc_set_display_mode);
-  make_func_symbol_func("pc-get-display-count", (void*)pc_get_display_count);
+  make_func_symbol_func("pc-get-display-id", GOAL_C_FUNC(pc_get_display_id));
+  make_func_symbol_func("pc-set-display-id!", GOAL_C_FUNC(pc_set_display_id));
+  make_func_symbol_func("pc-get-display-name", GOAL_C_FUNC(pc_get_display_name));
+  make_func_symbol_func("pc-get-display-mode", GOAL_C_FUNC(pc_get_display_mode));
+  make_func_symbol_func("pc-set-display-mode!", GOAL_C_FUNC(pc_set_display_mode));
+  make_func_symbol_func("pc-get-display-count", GOAL_C_FUNC(pc_get_display_count));
   // Returns resolution of the monitor's current display mode
-  make_func_symbol_func("pc-get-active-display-size", (void*)pc_get_active_display_size);
+  make_func_symbol_func("pc-get-active-display-size", GOAL_C_FUNC(pc_get_active_display_size));
   // Returns the current refresh rate of the currently selected monitor's display mode.
   make_func_symbol_func("pc-get-active-display-refresh-rate",
-                        (void*)pc_get_active_display_refresh_rate);
+                        GOAL_C_FUNC(pc_get_active_display_refresh_rate));
   // Returns size of window. Called from game thread
-  make_func_symbol_func("pc-get-window-size", (void*)pc_get_window_size);
+  make_func_symbol_func("pc-get-window-size", GOAL_C_FUNC(pc_get_window_size));
   // Returns scale of window. This is for DPI stuff.
-  make_func_symbol_func("pc-get-window-scale", (void*)pc_get_window_scale);
-  make_func_symbol_func("pc-set-window-size!", (void*)pc_set_window_size);
-  make_func_symbol_func("pc-get-num-resolutions", (void*)pc_get_num_resolutions);
-  make_func_symbol_func("pc-get-resolution", (void*)pc_get_resolution);
-  make_func_symbol_func("pc-is-supported-resolution?", (void*)pc_is_supported_resolution);
+  make_func_symbol_func("pc-get-window-scale", GOAL_C_FUNC(pc_get_window_scale));
+  make_func_symbol_func("pc-set-window-size!", GOAL_C_FUNC(pc_set_window_size));
+  make_func_symbol_func("pc-get-num-resolutions", GOAL_C_FUNC(pc_get_num_resolutions));
+  make_func_symbol_func("pc-get-resolution", GOAL_C_FUNC(pc_get_resolution));
+  make_func_symbol_func("pc-is-supported-resolution?", GOAL_C_FUNC(pc_is_supported_resolution));
 
   // -- INPUT RELATED --
   // Returns the name of the display with the given id or #f if not found / empty
-  make_func_symbol_func("pc-get-controller-name", (void*)pc_get_controller_name);
-  make_func_symbol_func("pc-get-current-bind", (void*)pc_get_current_bind);
-  make_func_symbol_func("pc-get-controller-count", (void*)pc_get_controller_count);
-  make_func_symbol_func("pc-get-controller-index", (void*)pc_get_controller_index);
-  make_func_symbol_func("pc-set-controller!", (void*)pc_set_controller);
-  make_func_symbol_func("pc-get-keyboard-enabled?", (void*)pc_get_keyboard_enabled);
-  make_func_symbol_func("pc-set-keyboard-enabled!", (void*)pc_set_keyboard_enabled);
-  make_func_symbol_func("pc-set-mouse-options!", (void*)pc_set_mouse_options);
-  make_func_symbol_func("pc-set-mouse-camera-sens!", (void*)pc_set_mouse_camera_sens);
+  make_func_symbol_func("pc-get-controller-name", GOAL_C_FUNC(pc_get_controller_name));
+  make_func_symbol_func("pc-get-current-bind", GOAL_C_FUNC(pc_get_current_bind));
+  make_func_symbol_func("pc-get-controller-count", GOAL_C_FUNC(pc_get_controller_count));
+  make_func_symbol_func("pc-get-controller-index", GOAL_C_FUNC(pc_get_controller_index));
+  make_func_symbol_func("pc-set-controller!", GOAL_C_FUNC(pc_set_controller));
+  make_func_symbol_func("pc-get-keyboard-enabled?", GOAL_C_FUNC(pc_get_keyboard_enabled));
+  make_func_symbol_func("pc-set-keyboard-enabled!", GOAL_C_FUNC(pc_set_keyboard_enabled));
+  make_func_symbol_func("pc-set-mouse-options!", GOAL_C_FUNC(pc_set_mouse_options));
+  make_func_symbol_func("pc-set-mouse-camera-sens!", GOAL_C_FUNC(pc_set_mouse_camera_sens));
   make_func_symbol_func("pc-ignore-background-controller-events!",
-                        (void*)pc_ignore_background_controller_events);
-  make_func_symbol_func("pc-current-controller-has-led?", (void*)pc_current_controller_has_led);
+                        GOAL_C_FUNC(pc_ignore_background_controller_events));
+  make_func_symbol_func("pc-current-controller-has-led?",
+                        GOAL_C_FUNC(pc_current_controller_has_led));
   make_func_symbol_func("pc-current-controller-has-rumble?",
-                        (void*)pc_current_controller_has_rumble);
-  make_func_symbol_func("pc-set-controller-led!", (void*)pc_set_controller_led);
-  make_func_symbol_func("pc-waiting-for-bind?", (void*)pc_waiting_for_bind);
-  make_func_symbol_func("pc-set-waiting-for-bind!", (void*)pc_set_waiting_for_bind);
-  make_func_symbol_func("pc-stop-waiting-for-bind!", (void*)pc_stop_waiting_for_bind);
-  make_func_symbol_func("pc-reset-bindings-to-defaults!", (void*)pc_reset_bindings_to_defaults);
-  make_func_symbol_func("pc-set-auto-hide-cursor!", (void*)pc_set_auto_hide_cursor);
+                        GOAL_C_FUNC(pc_current_controller_has_rumble));
+  make_func_symbol_func("pc-set-controller-led!", GOAL_C_FUNC(pc_set_controller_led));
+  make_func_symbol_func("pc-waiting-for-bind?", GOAL_C_FUNC(pc_waiting_for_bind));
+  make_func_symbol_func("pc-set-waiting-for-bind!", GOAL_C_FUNC(pc_set_waiting_for_bind));
+  make_func_symbol_func("pc-stop-waiting-for-bind!", GOAL_C_FUNC(pc_stop_waiting_for_bind));
+  make_func_symbol_func("pc-reset-bindings-to-defaults!",
+                        GOAL_C_FUNC(pc_reset_bindings_to_defaults));
+  make_func_symbol_func("pc-set-auto-hide-cursor!", GOAL_C_FUNC(pc_set_auto_hide_cursor));
   make_func_symbol_func("pc-get-pressure-sensitivity-enabled?",
-                        (void*)pc_get_pressure_sensitivity_enabled);
+                        GOAL_C_FUNC(pc_get_pressure_sensitivity_enabled));
   make_func_symbol_func("pc-set-pressure-sensitivity-enabled!",
-                        (void*)pc_set_pressure_sensitivity_enabled);
-  make_func_symbol_func("pc-set-axis-scale!", (void*)pc_set_axis_scale);
-  make_func_symbol_func("pc-get-axis-scale", (void*)pc_get_axis_scale);
+                        GOAL_C_FUNC(pc_set_pressure_sensitivity_enabled));
+  make_func_symbol_func("pc-set-axis-scale!", GOAL_C_FUNC(pc_set_axis_scale));
+  make_func_symbol_func("pc-get-axis-scale", GOAL_C_FUNC(pc_get_axis_scale));
   make_func_symbol_func("pc-current-controller-has-pressure-sensitivity?",
-                        (void*)pc_current_controller_has_pressure_sensitivity);
+                        GOAL_C_FUNC(pc_current_controller_has_pressure_sensitivity));
   make_func_symbol_func("pc-current-controller-has-trigger-effect-support?",
-                        (void*)pc_current_controller_has_trigger_effect_support);
-  make_func_symbol_func("pc-get-trigger-effects-enabled?", (void*)pc_get_trigger_effects_enabled);
-  make_func_symbol_func("pc-set-trigger-effects-enabled!", (void*)pc_set_trigger_effects_enabled);
-  make_func_symbol_func("pc-clear-trigger-effect!", (void*)pc_clear_trigger_effect);
-  make_func_symbol_func("pc-send-trigger-effect-feedback!", (void*)pc_send_trigger_effect_feedback);
-  make_func_symbol_func("pc-send-trigger-effect-vibrate!", (void*)pc_send_trigger_effect_vibrate);
-  make_func_symbol_func("pc-send-trigger-effect-weapon!", (void*)pc_send_trigger_effect_weapon);
-  make_func_symbol_func("pc-send-trigger-rumble!", (void*)pc_send_trigger_rumble);
+                        GOAL_C_FUNC(pc_current_controller_has_trigger_effect_support));
+  make_func_symbol_func("pc-get-trigger-effects-enabled?",
+                        GOAL_C_FUNC(pc_get_trigger_effects_enabled));
+  make_func_symbol_func("pc-set-trigger-effects-enabled!",
+                        GOAL_C_FUNC(pc_set_trigger_effects_enabled));
+  make_func_symbol_func("pc-clear-trigger-effect!", GOAL_C_FUNC(pc_clear_trigger_effect));
+  make_func_symbol_func("pc-send-trigger-effect-feedback!",
+                        GOAL_C_FUNC(pc_send_trigger_effect_feedback));
+  make_func_symbol_func("pc-send-trigger-effect-vibrate!",
+                        GOAL_C_FUNC(pc_send_trigger_effect_vibrate));
+  make_func_symbol_func("pc-send-trigger-effect-weapon!",
+                        GOAL_C_FUNC(pc_send_trigger_effect_weapon));
+  make_func_symbol_func("pc-send-trigger-rumble!", GOAL_C_FUNC(pc_send_trigger_rumble));
 
   // graphics things
-  make_func_symbol_func("pc-set-vsync", (void*)pc_set_vsync);
-  make_func_symbol_func("pc-set-msaa", (void*)pc_set_msaa);
-  make_func_symbol_func("pc-set-frame-rate", (void*)pc_set_frame_rate);
-  make_func_symbol_func("pc-set-game-resolution", (void*)pc_set_game_resolution);
-  make_func_symbol_func("pc-set-brightness-contrast", (void*)pc_set_brightness_contrast);
-  make_func_symbol_func("pc-set-letterbox", (void*)pc_set_letterbox);
-  make_func_symbol_func("pc-renderer-tree-set-lod", (void*)pc_renderer_tree_set_lod);
-  make_func_symbol_func("pc-set-collision-mode", (void*)Gfx::CollisionRendererSetMode);
-  make_func_symbol_func("pc-set-collision-mask", (void*)pc_set_collision_mask);
-  make_func_symbol_func("pc-get-collision-mask", (void*)pc_get_collision_mask);
-  make_func_symbol_func("pc-set-collision-wireframe", (void*)pc_set_collision_wireframe);
-  make_func_symbol_func("pc-set-collision", (void*)pc_set_collision);
-  make_func_symbol_func("pc-set-gfx-hack", (void*)pc_set_gfx_hack);
+  make_func_symbol_func("pc-set-vsync", GOAL_C_FUNC(pc_set_vsync));
+  make_func_symbol_func("pc-set-msaa", GOAL_C_FUNC(pc_set_msaa));
+  make_func_symbol_func("pc-set-frame-rate", GOAL_C_FUNC(pc_set_frame_rate));
+  make_func_symbol_func("pc-set-game-resolution", GOAL_C_FUNC(pc_set_game_resolution));
+  make_func_symbol_func("pc-set-brightness-contrast", GOAL_C_FUNC(pc_set_brightness_contrast));
+  make_func_symbol_func("pc-set-letterbox", GOAL_C_FUNC(pc_set_letterbox));
+  make_func_symbol_func("pc-renderer-tree-set-lod", GOAL_C_FUNC(pc_renderer_tree_set_lod));
+  make_func_symbol_func("pc-set-collision-mode", GOAL_C_FUNC(Gfx::CollisionRendererSetMode));
+  make_func_symbol_func("pc-set-collision-mask", GOAL_C_FUNC(pc_set_collision_mask));
+  make_func_symbol_func("pc-get-collision-mask", GOAL_C_FUNC(pc_get_collision_mask));
+  make_func_symbol_func("pc-set-collision-wireframe", GOAL_C_FUNC(pc_set_collision_wireframe));
+  make_func_symbol_func("pc-set-collision", GOAL_C_FUNC(pc_set_collision));
+  make_func_symbol_func("pc-set-gfx-hack", GOAL_C_FUNC(pc_set_gfx_hack));
 
   // -- OTHER --
   // Return the current OS as a symbol. Actually returns what it was compiled for!
-  make_func_symbol_func("pc-get-os", (void*)pc_get_os);
-  make_func_symbol_func("pc-get-unix-timestamp", (void*)pc_get_unix_timestamp);
-  make_func_symbol_func("pc-treat-pad0-as-pad1", (void*)pc_treat_pad0_as_pad1);
-  make_func_symbol_func("pc-is-imgui-visible?", (void*)pc_is_imgui_visible);
+  make_func_symbol_func("pc-get-os", GOAL_C_FUNC(pc_get_os));
+  make_func_symbol_func("pc-get-unix-timestamp", GOAL_C_FUNC(pc_get_unix_timestamp));
+  make_func_symbol_func("pc-treat-pad0-as-pad1", GOAL_C_FUNC(pc_treat_pad0_as_pad1));
+  make_func_symbol_func("pc-is-imgui-visible?", GOAL_C_FUNC(pc_is_imgui_visible));
 
   // file related functions
-  make_func_symbol_func("pc-filepath-exists?", (void*)pc_filepath_exists);
-  make_func_symbol_func("pc-mkdir-file-path", (void*)pc_mkdir_filepath);
+  make_func_symbol_func("pc-filepath-exists?", GOAL_C_FUNC(pc_filepath_exists));
+  make_func_symbol_func("pc-mkdir-file-path", GOAL_C_FUNC(pc_mkdir_filepath));
 
   // discord rich presence
-  make_func_symbol_func("pc-discord-rpc-set", (void*)set_discord_rpc);
+  make_func_symbol_func("pc-discord-rpc-set", GOAL_C_FUNC(set_discord_rpc));
 
   // profiler
-  make_func_symbol_func("pc-prof", (void*)pc_prof);
+  make_func_symbol_func("pc-prof", GOAL_C_FUNC(pc_prof));
 
   // RNG
-  make_func_symbol_func("pc-rand", (void*)pc_rand);
+  make_func_symbol_func("pc-rand", GOAL_C_FUNC(pc_rand));
 
   // text
-  make_func_symbol_func("pc-encode-utf8-string", (void*)pc_encode_utf8_string);
+  make_func_symbol_func("pc-encode-utf8-string", GOAL_C_FUNC(pc_encode_utf8_string));
 
   // debugging tools
-  make_func_symbol_func("pc-filter-debug-string?", (void*)pc_filter_debug_string);
-  make_func_symbol_func("pc-screen-shot", (void*)pc_screen_shot);
+  make_func_symbol_func("pc-filter-debug-string?", GOAL_C_FUNC(pc_filter_debug_string));
+  make_func_symbol_func("pc-screen-shot", GOAL_C_FUNC(pc_screen_shot));
   make_func_symbol_func("pc-register-screen-shot-settings",
-                        (void*)pc_register_screen_shot_settings);
+                        GOAL_C_FUNC(pc_register_screen_shot_settings));
 }

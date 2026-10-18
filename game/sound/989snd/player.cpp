@@ -28,6 +28,10 @@ Player::~Player() {
 }
 
 void Player::InitCubeb() {
+#ifdef __EMSCRIPTEN__
+  // no audio output in the wasm runtime yet (M6: AudioWorklet), the synth runs silently
+  return;
+#endif
 #ifdef _WIN32
   HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   m_coinitialized = SUCCEEDED(hr);
@@ -70,6 +74,9 @@ void Player::InitCubeb() {
 }
 
 void Player::DestroyCubeb() {
+#ifdef __EMSCRIPTEN__
+  return;
+#endif
   cubeb_stream_stop(mStream);
   cubeb_stream_destroy(mStream);
   cubeb_destroy(mCtx);

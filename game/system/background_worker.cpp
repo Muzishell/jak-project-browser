@@ -2,7 +2,9 @@
 
 #include "common/log/log.h"
 
+#ifndef __EMSCRIPTEN__
 #include "curl/curl.h"
+#endif
 
 bool BackgroundWorker::process_queues() {
   std::lock_guard<std::mutex> job_lock(job_queue_lock);
@@ -45,6 +47,12 @@ void BackgroundWorker::enqueue_webrequest(WebRequestJobPayload payload) {
   inbox_queue.push({JobType::WEB_REQUEST, payload});
 }
 
+#ifdef __EMSCRIPTEN__
+void BackgroundWorker::job_web_request(WebRequestJobPayload payload) {
+  // no curl in the browser runtime
+  payload.callback(false, payload.cache_id, "web requests are not available in the wasm runtime");
+}
+#else
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
   ((std::string*)userp)->append((char*)contents, size * nmemb);
   return size * nmemb;
@@ -81,3 +89,4 @@ void BackgroundWorker::job_web_request(WebRequestJobPayload payload) {
     }
   }
 }
+#endif

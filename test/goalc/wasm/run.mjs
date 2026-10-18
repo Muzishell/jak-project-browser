@@ -29,7 +29,8 @@ const debug = process.env.WASM_RUN_DEBUG ? (msg) => console.error(`[run.mjs] ${m
 // ---- EE memory ----
 // the layout follows the native jak1 runtime where tests can observe it: 128 MB of EE memory,
 // s7 at the native address, the stack just below the top of EE memory
-const memory = new WebAssembly.Memory({ initial: 2048 }); // 128 MB, EE_MAIN_MEM_SIZE
+// shared like the pthread runtime's, which the modules declare
+const memory = new WebAssembly.Memory({ initial: 2048, maximum: 2048, shared: true }); // 128 MB, EE_MAIN_MEM_SIZE
 const table = new WebAssembly.Table({ initial: 0, element: "anyfunc" });
 const EE_BASE = 0; // GOAL address == linear memory address
 const u8 = () => new Uint8Array(memory.buffer);
@@ -41,6 +42,10 @@ let heapTop = 0x400000; // below this: the symbol table
 // shadow stack for functions with stack variables: x86 starts the GOAL stack at
 // EE_MAIN_MEM_SIZE - GOAL_STACK_TOP_OFFSET (8); keep it 16-byte aligned
 const stackPointer = new WebAssembly.Global({ value: "i32", mutable: true }, 0x8000000 - 16);
+// process pointer (r13): call_goal from C starts it at the symbol table, like the x86 stubs
+let processPointer = null;
+// 128-bit register area (xmm0-8, 16 bytes each), a linear address in the unused low memory
+const XMM_AREA = 0x100;
 function alloc(size, align = 16) {
   heapTop = Math.ceil(heapTop / align) * align;
   const addr = heapTop;
@@ -413,8 +418,9 @@ function runFile(objectPath, wasmPath) {
   const module = new WebAssembly.Module(fs.readFileSync(wasmPath));
   const { segBase, tableBase } = link(objectBytes);
 
+  processPointer ??= new WebAssembly.Global({ value: "i64", mutable: true }, BigInt(ST));
   const env = { memory, table, ee_base: i32(EE_BASE), st: i32(ST), table_base: i32(tableBase),
-                sp: stackPointer };
+                sp: stackPointer, pp: processPointer, xmm_area: i32(XMM_AREA) };
   SEG_NAMES.forEach((name, seg) => (env[name] = i32(segBase[seg])));
   const sym = {};
   for (const imp of WebAssembly.Module.imports(module)) {

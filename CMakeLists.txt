@@ -25,6 +25,13 @@ else()
     set(BUILD_STATIC_LIBS OFF)
 endif()
 
+# Emscripten (build-wasm/): only the headless jak1 runtime, see wasm/CMakeLists.txt.
+# Nothing below this block is used for that build.
+if(EMSCRIPTEN)
+    add_subdirectory(wasm)
+    return()
+endif()
+
 # Experimental WebAssembly codegen backend for the compiler. Fetches Binaryen at configure time.
 option(OPENGOAL_WASM_BACKEND "Build the experimental WebAssembly codegen backend" OFF)
 message(STATUS "WebAssembly backend? ${OPENGOAL_WASM_BACKEND}")

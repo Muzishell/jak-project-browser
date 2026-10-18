@@ -144,6 +144,10 @@ BinaryenExpressionRef op32_sext(WasmFunctionGen* gen,
 
 void IR_Return::do_codegen_wasm(WasmFunctionGen* gen) {
   regset_common(gen, this, m_return_reg, m_value);
+  if (is_128(m_return_reg)) {
+    // 128-bit results go through the register area's xmm0 slot
+    gen->emit(gen->store_xmm_area(gen->get_reg(m_return_reg), gen->get(m_return_reg)));
+  }
 }
 
 void IR_LoadConstant64::do_codegen_wasm(WasmFunctionGen* gen) {
@@ -211,13 +215,11 @@ void IR_FunctionAddr::do_codegen_wasm(WasmFunctionGen* gen) {
 void IR_FunctionCall::do_codegen_wasm(WasmFunctionGen* gen) {
   const auto instr_set = emitter::InstructionSet::WASM;
   const auto& info = emitter::reg_info(instr_set);
+  // 128-bit arguments go through the register area (xmm1-8), the callee loads them
   for (auto& reg : m_arg_regs) {
     if (!reg.is_gpr(instr_set)) {
-      unsupported(this);  // 128-bit arguments
+      gen->emit(gen->store_xmm_area(reg, gen->get_reg_value(reg, RegClass::INT_128)));
     }
-  }
-  if (m_ret_reg && !m_ret_reg->is_gpr(instr_set)) {
-    unsupported(this);  // 128-bit return
   }
 
   // every GOAL function takes all eight GPR argument registers
@@ -232,6 +234,10 @@ void IR_FunctionCall::do_codegen_wasm(WasmFunctionGen* gen) {
                                    gen->goal_params(), BinaryenTypeInt64());
   // the callee returns in rax, which a call clobbers either way
   gen->emit(gen->set_reg_value(info.get_gpr_ret_reg(), RegClass::GPR_64, call));
+  if (m_ret_reg && !m_ret_reg->is_gpr(instr_set)) {
+    // a 128-bit result is in the area's xmm0 slot
+    gen->emit(gen->set_reg_value(*m_ret_reg, RegClass::INT_128, gen->load_xmm_area(*m_ret_reg)));
+  }
 }
 
 void IR_IntegerMath::do_codegen_wasm(WasmFunctionGen* gen) {
@@ -464,6 +470,11 @@ void IR_ValueReset::do_codegen_wasm(WasmFunctionGen* gen) {
 
 void IR_Nop::do_codegen_wasm(WasmFunctionGen* gen) {
   (void)gen;
+}
+
+void IR_AsmBreak::do_codegen_wasm(WasmFunctionGen* gen) {
+  // x86 int3 stops in the debugger; there is no debugger to continue from here
+  gen->emit(BinaryenUnreachable(gen->module()));
 }
 
 void IR_LoadConstOffset::do_codegen_wasm(WasmFunctionGen* gen) {

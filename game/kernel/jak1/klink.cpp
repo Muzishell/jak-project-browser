@@ -14,7 +14,27 @@
 
 #include "fmt/format.h"
 
+#ifdef __EMSCRIPTEN__
+#include <cstring>
+#include <emscripten.h>
+
+#include "wasm/goal_call.h"
+#endif
+
 static constexpr bool link_debug_printfs = false;
+
+#ifdef __EMSCRIPTEN__
+namespace {
+// table base of the wasm module of the object being linked: its function slots hold the index of
+// the function in the module (goalc/compiler/wasm/WasmCodeGenerator.h)
+u32 wasm_link_table_base = 0;
+}  // namespace
+
+// the wasm module importer's view of the symbol table (wasm/goal_call.cpp)
+extern "C" EMSCRIPTEN_KEEPALIVE s32 wasm_goal_symbol_offset(const char* name) {
+  return s32(jak1::intern_from_c(name).offset - s7.offset);
+}
+#endif
 /*!
  * Make progress on linking.
  */
@@ -123,6 +143,12 @@ uint32_t typelink_v3(Ptr<uint8_t> link, Ptr<uint8_t> data) {
   // write the type pointers into memory
   for (uint32_t i = 0; i < offset_count; i++) {
     *(data + offsets.c()[i]).cast<int32_t>() = type_ptr.offset;
+#ifdef __EMSCRIPTEN__
+    if (!strcmp(sym_name, "function")) {
+      // a function: the slot after the type tag becomes its table index
+      *(data + offsets.c()[i] + 4).cast<u32>() += wasm_link_table_base;
+    }
+#endif
     seek += 4;
   }
 
@@ -268,6 +294,9 @@ uint32_t link_control::jak1_work_v3() {
     if (m_segment_process < ofh->segment_count) {
       if (ofh->code_infos[m_segment_process].offset) {
         Ptr<u8> lp(ofh->link_infos[m_segment_process].offset);
+#ifdef __EMSCRIPTEN__
+        wasm_link_table_base = m_wasm_table_base;
+#endif
 
         while (*lp) {
           switch (*lp) {
@@ -310,6 +339,15 @@ uint32_t link_control::jak1_work_v3() {
 
       m_segment_process++;
     } else {
+#ifdef __EMSCRIPTEN__
+      // the code: its functions go in the table entries the slots now point to
+      u32 seg_bases[N_SEG];
+      for (int seg = 0; seg < N_SEG; seg++) {
+        seg_bases[seg] = ofh->code_infos[seg].offset;
+      }
+      wasm_goal::instantiate_module(m_wasm_module, s7.offset, seg_bases);
+      m_wasm_module = 0;
+#endif
       // all done, can set the entry point to the top-level.
       m_entry = Ptr<u8>(ofh->code_infos[TOP_LEVEL_SEGMENT].offset) + 4;
       return 1;

@@ -4,6 +4,11 @@
 #include "game/kernel/common/kmalloc.h"
 #include "game/kernel/common/kprint.h"
 
+#ifdef __EMSCRIPTEN__
+#include "game/runtime.h"
+#include "wasm/goal_call.h"
+#endif
+
 // total number of symbols in the table
 s32 NumSymbols;
 
@@ -158,6 +163,9 @@ u64 call_goal(Ptr<Function> f, u64 a, u64 b, u64 c, u64 st, void* offset) {
   return _call_goal_asm_systemv(a, b, c, fptr, st_ptr, offset);
 #elif _WIN32
   return _call_goal_asm_win32(a, b, c, fptr, st_ptr, offset);
+#elif defined __EMSCRIPTEN__
+  // st and offset are imports of the GOAL modules, not registers; st is still the initial pp
+  return wasm_goal::call(f.offset, a, b, c, u32(st));
 #else
   ASSERT_MSG(false, "call_goal: no GOAL call trampoline for this architecture or platform");
   return 0;
@@ -180,6 +188,9 @@ u64 call_goal_on_stack(Ptr<Function> f, u64 rsp, u64 st, void* offset) {
   return _call_goal_on_stack_asm_systemv(rsp, 0, 0, fptr, st_ptr, offset);
 #elif _WIN32
   return _call_goal_on_stack_asm_win32(rsp, fptr, st_ptr, offset);
+#elif defined __EMSCRIPTEN__
+  // rsp is a host address; GOAL's shadow stack pointer is a GOAL address
+  return wasm_goal::call_on_stack(f.offset, u32(rsp - u64(uintptr_t(g_ee_main_mem))), u32(st));
 #else
   ASSERT_MSG(false,
              "call_goal_on_stack: no GOAL call trampoline for this architecture or platform");

@@ -25,6 +25,20 @@ inline u32 crc32(const u8* data, size_t size) {
   }
   return ~result;
 }
+#elif defined(__EMSCRIPTEN__)
+// Computes CRC32C bit by bit: the same values as the SSE4.2 crc32 instructions
+inline u32 crc32(const u8* data, size_t size) {
+  u32 result = 0xffffffff;
+  while (size) {
+    result ^= *data;
+    for (int i = 0; i < 8; i++) {
+      result = (result >> 1) ^ (0x82F63B78u & (0u - (result & 1)));
+    }
+    data++;
+    size--;
+  }
+  return ~result;
+}
 #else
 #include <immintrin.h>
 // Computes CRC32C

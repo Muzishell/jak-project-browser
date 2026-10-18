@@ -91,6 +91,12 @@ struct link_control {
   int m_n_segments = 0;
   SegmentInfoV5* m_link_segments_table = nullptr;
 
+#ifdef __EMSCRIPTEN__
+  // the object's wasm module (wasm/goal_call.h): compiled in begin, instantiated once linked
+  int m_wasm_module = 0;
+  uint32_t m_wasm_table_base = 0;
+#endif
+
   void jak1_jak2_begin(Ptr<uint8_t> object_file,
                        const char* name,
                        int32_t size,
@@ -149,6 +155,10 @@ struct link_control {
     m_segment_process = 0;
     m_version = 0;
     m_busy = false;
+#ifdef __EMSCRIPTEN__
+    m_wasm_module = 0;
+    m_wasm_table_base = 0;
+#endif
   }
 };
 

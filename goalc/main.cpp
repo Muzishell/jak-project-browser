@@ -77,6 +77,10 @@ int main(int argc, char** argv) {
     instr_set = emitter::InstructionSet::X86;
   } else if (instr_set_name == "arm64") {
     instr_set = emitter::InstructionSet::ARM64;
+#ifdef OPENGOAL_WASM_BACKEND
+  } else if (instr_set_name == "wasm") {
+    instr_set = emitter::InstructionSet::WASM;
+#endif
   } else {
     lg::error("Instruction set '{}' must be 'x86' or 'arm64'", instr_set_name);
     return 1;

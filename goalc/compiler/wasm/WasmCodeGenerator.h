@@ -10,7 +10,8 @@
  *  - a wasm module with the code, which finds the data through the segment base imports.
  *
  * Module ABI (all imports come from module "env" unless noted):
- *  - memory "memory": linear memory holding EE memory at the imported i32 global "ee_base".
+ *  - memory "memory": shared linear memory (the runtime has pthreads), at most 4 GB, holding EE
+ *    memory at the imported i32 global "ee_base".
  *  - table "table": shared funcref table. This file's functions are placed by an active element
  *    segment at the imported i32 global "table_base", in FileEnv function order.
  *  - global "st": i32 GOAL address of the symbol table (the x86 st register, r14).
@@ -20,9 +21,16 @@
  *    only by functions with stack variables. Their frame has the x86 layout: 8-byte slots for
  *    spills and stack variables. Spills of address-taken variables live there, other spills
  *    are locals.
+ *  - mutable global "pp": i64, the process pointer (x86 r13), shared by all modules. Reading the
+ *    st (r14) and off (r15) registers gives st and ee_base; neither can be written. The rsp
+ *    register is "sp" (a GOAL address), so kernel code can switch stacks.
  *  - module "sym", global "<name>": i32 offset of symbol <name> from st, one per symbol used.
  *  - every GOAL function has type (i64 x 8) -> i64. The parameters are the GPR argument registers
  *    (rdi rsi rdx rcx r8 r9 r10 r11) and the result is rax.
+ *  - global "xmm_area": i32 linear-memory address (not a GOAL address) of the 128-bit register
+ *    area, 9 slots of 16 bytes: xmm0, then xmm1-8. The caller stores 128-bit arguments in their
+ *    xmm slot before the call and the callee loads them on entry; a 128-bit result is stored in
+ *    the xmm0 slot by the callee and loaded by the caller after the call.
  *  - a GOAL function value is an EE address holding the function's u32 table index;
  *    a call is call_indirect on the index loaded from that address.
  *  - each function is exported under its GOAL internal name.
@@ -51,6 +59,8 @@ class TypeSystem;
 namespace wasm_backend {
 
 constexpr int kGoalArgCount = 8;
+//! xmm0-8 in the 128-bit register area
+constexpr int kXmmAreaSlots = 9;
 
 class WasmModuleGen;
 
@@ -90,6 +100,10 @@ class WasmFunctionGen {
   BinaryenExpressionRef static_addr(const StaticObject* obj);
   //! GOAL address (i32) of a byte offset in this function's stack frame.
   BinaryenExpressionRef frame_addr(int byte_offset);
+  //! The 128-bit register area slot of an xmm register (see the module ABI above).
+  BinaryenExpressionRef xmm_area_addr(emitter::Register reg);
+  BinaryenExpressionRef store_xmm_area(emitter::Register reg, BinaryenExpressionRef value);
+  BinaryenExpressionRef load_xmm_area(emitter::Register reg);
 
   BinaryenExpressionRef i32(s32 value);
   BinaryenExpressionRef i64(s64 value);
@@ -153,6 +167,10 @@ class WasmModuleGen {
   const char* segment_global(int seg);
   //! Name of the imported mutable shadow stack pointer global (added on first use).
   const char* stack_pointer_global();
+  //! Name of the imported mutable process pointer global (added on first use).
+  const char* process_pointer_global();
+  //! Name of the imported 128-bit register area address global (added on first use).
+  const char* xmm_area_global();
   //! Where a function / static object is in the object file: (segment, offset in segment).
   std::pair<int, int> function_location(int idx_in_file) const;
   std::pair<int, int> static_location(const StaticObject* obj) const;
@@ -166,6 +184,8 @@ class WasmModuleGen {
   std::map<std::string, std::string> m_symbol_globals;
   std::map<int, bool> m_segment_globals;
   bool m_stack_pointer_global = false;
+  bool m_process_pointer_global = false;
+  bool m_xmm_area_global = false;
   std::vector<std::pair<int, int>> m_function_locations;
   std::map<const StaticObject*, std::pair<int, int>> m_static_locations;
 };

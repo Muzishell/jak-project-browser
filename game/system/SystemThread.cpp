@@ -99,6 +99,8 @@ void* bootstrap_thread_func(void* x) {
 
 #ifdef __linux
   pthread_setname_np(pthread_self(), thd->name.c_str());
+#elif defined(__EMSCRIPTEN__)
+  // no thread names in wasm
 #elif __APPLE__
   pthread_setname_np(thd->name.c_str());
 #else

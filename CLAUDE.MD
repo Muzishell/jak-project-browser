@@ -85,13 +85,27 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - [x] M1 Native build from source on `wasm` branch; `goalc-test` passes.
 - [x] M2 `do_codegen_wasm` validated on compiler tests (`test/goalc/`, `test/goalc/test_CodeTester.cpp`
       pattern) executed in Node. No game data needed.
-- [ ] M3 Headless runtime under Emscripten (GL and audio stubbed) boots until `KERNEL.CGO` is linked
+- [x] M3 Headless runtime under Emscripten (GL and audio stubbed) boots until `KERNEL.CGO` is linked
       and the kernel loop runs.
 - [ ] M4 Asyncify suspend/resume: `ENGINE`/`GAME` load and processes tick headless.
 - [ ] M5 WebGL2 renderer: Geyser Rock on screen in Chrome.
 - [ ] M6 Sandover, audio, Gamepad API, performance.
 - [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
       Cloudflare Access, save cloud sync and export/import.
+
+### M3 plan
+
+1. Emscripten build: `wasm/CMakeLists.txt` (only when `EMSCRIPTEN`), jak1-only headless runtime in
+   `build-wasm/`, graphics/sound/input/discord/curl stubbed behind `__EMSCRIPTEN__`. Runs under Node
+   (`NODERAWFS`) with `-nokernel` up to the C kernel loop.
+2. C <-> GOAL calls: GOAL's funcref table is Emscripten's `__indirect_function_table`, so a C function
+   pointer is a table index. Exported C functions get a typed `(i64 x8) -> i64` adapter (macro at the
+   registration sites, `(void*)fn` on native). `call_goal` = typed call through the table. 128-bit
+   args/returns through a register area in memory.
+3. KERNEL.CGO for wasm: `goalc --instruction-set wasm` appends each object's wasm module after its v3
+   data (DGO format unchanged). Kernel sources get `INSTRUCTION_SET 'wasm` branches for asm functions.
+4. klink instantiates modules against the shared Memory/Table; kernel version check passes and
+   `kernel-dispatcher` runs from the C kernel loop.
 
 ## How to work
 
@@ -124,5 +138,19 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-17: Stack frames: shadow stack via imported mutable `sp`, x86 frame layout; only address-taken (`forced_on_stack`) spills go to memory. 128-bit function args/returns are still unsupported (needs an ABI change to the `(i64 x8) -> i64` signature).
 - 2026-10-17: `test_wasm_vs_native.cpp` runs templates in `source_templates/wasm-vs-native/` on the native no-kernel runtime and in Node and requires identical output — use it for anything without a native expected string.
 - 2026-10-17: M2 done (scope: the no-kernel suites). Ported to Node with native expected output: arithmetic (all), control-statements (all but align16-2), collections (all), variables (10 of 15), plus wasm-vs-native. Left for M3: tests that need the C kernel's type system (deftype/object-new/method-set!, built-in type objects), the with_game/kernel suites (need KERNEL.CGO), and asm functions.
-- 2026-10-17: Still unsupported in wasm, needed by M3/M4: asm functions and asm-only IR (.push/.pop/.ret/.jr, IR_GetSymbolValueAsm), 128-bit function args/returns, and the special registers (pp r13, st r14, off r15) as rlet values — the kernel's gkernel.gc relies on all of these.
+- 2026-10-17: (128-bit calls and special registers done in M3, see below) Still unsupported in wasm, needed by M3/M4: asm functions and asm-only IR (.push/.pop/.ret/.jr, IR_GetSymbolValueAsm), 128-bit function args/returns, and the special registers (pp r13, st r14, off r15) as rlet values — the kernel's gkernel.gc relies on all of these.
 - 2026-10-17: Harness layout mirrors native jak1 where tests observe it: 128 MB EE, s7 at 0x14fd24, stack top 0x7fffff0, symbols at offsets ≡4 mod 8 with a `symbol` type tag, types laid out like kscheme `Type` with print_object as method 2, pair new = new_pair.
+- 2026-10-18: M3 slice 1 — Emscripten 6.0.12 (`wasm/EMSDK_VERSION`). `emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release`; the root CMakeLists hands off to `wasm/CMakeLists.txt` and returns. Run with `node build-wasm/wasm/gk_headless.js -fakeiso -debug -nokernel -nosound`: reaches `KernelCheckAndDispatch`.
+- 2026-10-18: Deviation from decision 7 (flagged for the owner): libco is replaced by `wasm/libco_pthread.cpp`, one pthread per IOP coroutine handed a baton (binary semaphore) on `co_switch`. Emscripten fibers need Asyncify for the whole IOP, this needs nothing; revisit if thread count or switch cost matters.
+- 2026-10-18: `wasm/runtime_wasm.cpp` is a jak1-only copy of `game/runtime.cpp` without the DMP thread or graphics (pulling runtime.cpp in drags all games and the renderer). Keep it in sync when runtime.cpp's boot changes.
+- 2026-10-18: Headless gk uses the real hid sources (display/input managers) with Emscripten's SDL3 port (`--use-port=sdl3`); stubs only for gfx/display/screenshot/mips2c/Deci2Server/xdbg, the discord-rpc library and `sceGsSync*` (`wasm/stubs.cpp`).
+- 2026-10-18: Emscripten gotchas: `long` is 32 bits, so `__linux__` paths stay off (`OS_POSIX` also on `__EMSCRIPTEN__`); the root CMake forces `BUILD_SHARED_LIBS ON` (wasm/ sets it OFF, or libfmt.so is dlopen'd); fmt needs `-include stdlib.h`; "recompile with -fPIC" at link = an undefined data symbol; an indirect call through a mismatched signature traps (IOP thread entries return u32).
+- 2026-10-18: C functions exported to GOAL are wrapped at the registration site: `GOAL_C_FUNC(f)` / `GOAL_C_FUNC_PP(f)` / `GOAL_C_STACK_FUNC(f)` (game/kernel/common/goal_c_function.h) are `(void*)f` natively and a typed `(i64 x8) -> i64` adapter (`wasm/goal_call.h`) under Emscripten. GOAL's table is Emscripten's `__indirect_function_table`, so the adapter's address is the table index stored in the function object.
+- 2026-10-18: The GOAL shadow-stack pointer `sp` is a JS `WebAssembly.Global` (`Module.goalStackPointer()`, wasm/goal_modules.js), shared by every GOAL module and read/written by C++ through EM_JS; `call_goal_on_stack` sets it.
+- 2026-10-18: M3 KERNEL.CGO — `build/WasmBackend/bin/goalc/goalc --game jak1 --instruction-set wasm --cmd '(make-group "kernel")'`. The compiler sets `*wasm-target*` for game.gp, which then writes to `out/jak1-wasm/` (never over native `out/jak1/`); the wasm runtime's fake ISO reads `out/jak1-wasm/iso`. Each .o is the v3 object, the module size (u32), then the module (WasmObject.h `pack_wasm_object`).
+- 2026-10-18: klink under `__EMSCRIPTEN__`: begin compiles the module found after the last segment's data and grows the table (its table_base); the `function` type link adds table_base to the slot; after the last link pass the module is instantiated (imports in wasm/goal_modules.js, `sym` imports interned through the exported `wasm_goal_symbol_offset`).
+- 2026-10-18: Special registers in wasm: pp (r13) is the mutable i64 global `pp` shared by all modules (C++ reads it via EM_JS for `GOAL_C_FUNC_PP`; call_goal sets pp = st and restores it, like the x86 stubs); reading r14/r15 gives st / ee_base (no writes); rsp is the `sp` global as a GOAL address, so kernel code can switch stacks.
+- 2026-10-18: 128-bit args/returns (option 3, owner's choice): imported `xmm_area` = linear address of 9×16 bytes (xmm0, xmm1-8). The caller stores 128-bit args in their xmm slot before `call_indirect`, the callee loads them on entry (its IR-0 constraints), `IR_Return` stores a 128-bit result in slot 0 and the caller loads it. Covered by wasm-vs-native `i128-calls.gc`. C functions with 128-bit args are still unsupported.
+- 2026-10-18: Kernel asm functions got `INSTRUCTION_SET 'wasm` branches; their `asm-func` declares moved into the native branches (a declare inside a first-form `#cond` is accepted). reset-and-call and catch-frame new are real wasm functions; thread-suspend/resume, return-from-thread(-dead), set-to-run-bootstrap, throw-dispatch, the enter-state code jump, abandon-thread and deactivate of the running process call the C `wasm-unimplemented` (abort) until M4.
+- 2026-10-18: Modules import a shared memory with a 4 GB maximum (atomics feature): pthreads make Emscripten's memory shared, and a non-shared import fails to link. The Node harness memory is shared too. Each pthread has its own table, so GOAL functions exist only in the EE thread's.
+- 2026-10-18: M3 done — `node build-wasm/wasm/gk_headless.js -fakeiso -debug -nosound` links the 8 KERNEL.CGO objects ("Got correct kernel version 2.0"), prints what native `gk --no-display -- -fakeiso -debug -nosound` prints, and the C kernel loop calls kernel-dispatcher (~700/s) without traps. Native gk needs `--no-display --` before the game args.

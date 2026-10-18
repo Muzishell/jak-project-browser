@@ -20,7 +20,13 @@ void IopThread::functionWrapper() {
   void (*f)() = thread_entry;
   co_switch(wrap_return);
   if (f != nullptr) {
+#ifdef __EMSCRIPTEN__
+    // thread entries are ThreadParam::entry, u32 (*)(), cast to void (*)() in iop.cpp. Wasm
+    // checks the signature of indirect calls, so call them through their real type.
+    ((u32(*)())f)();
+#else
     f();
+#endif
   }
   // libco threads must not return
   while (true) {

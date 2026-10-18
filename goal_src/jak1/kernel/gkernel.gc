@@ -417,17 +417,28 @@
 ;; to get back to the kernel, we use this global symbol.
 (define-extern *kernel-sp* pointer)
 
+;; wasm has no return addresses or saved registers to switch: the thread switches below are
+;; plain calls there, and what needs suspend/resume waits for it (CLAUDE.MD, decision 5).
+;; The asm-func declares are in the native branches so the wasm ones are normal functions.
+(#cond
+ ((eq? INSTRUCTION_SET 'wasm)
+  ;; C kernel: reports a kernel feature the wasm runtime doesn't have yet, then aborts
+  (define-extern wasm-unimplemented (function string none))))
+
 (defun return-from-thread ()
   "Context switch to the saved kernel context now.
   This is intended to be jumped to with the ret instruction (return trampoline)
   at the end of a normal function, so this should preserve rax.
   To make sure this happens, all ops should be asm ops and we should have no
   GOAL expressions."
-  (declare (asm-func none)
-           ;(print-asm)
-           )
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    ;; reset-and-call returns to the kernel by returning
+    (wasm-unimplemented "return-from-thread"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none)
+             ;(print-asm)
+             )
     ;; keep x0 intact while restoring the kernel return address
     (rlet ((sp :reg sp :type uint)
            (off :reg off :type uint)
@@ -450,6 +461,9 @@
       (.pop :color #f ra)
       (.ret)))
    (#t
+    (declare (asm-func none)
+             ;(print-asm)
+             )
     (rlet ((sp :reg rsp :type uint)
            (off :reg r15 :type uint)
            (s0 :reg rbx :type uint)
@@ -475,11 +489,13 @@
 (defun return-from-thread-dead ()
   "Like return from thread, but we clean up our process with deactivate first.
   The return register is not preserved here, instead we return the value of deactivate"
-  (declare (asm-func none)
-           ;(print-asm)
-           )
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    (wasm-unimplemented "return-from-thread-dead"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none)
+             ;(print-asm)
+             )
     ;; deactivate can clobber lr, so restore it last
     (rlet ((pp :reg pp :type process)
            (sp :reg sp :type uint)
@@ -503,6 +519,9 @@
       (.pop :color #f ra)
       (.ret)))
    (#t
+    (declare (asm-func none)
+             ;(print-asm)
+             )
     (rlet ((pp :reg r13 :type process)
            (sp :reg rsp :type uint)
            (off :reg r15 :type uint)
@@ -536,6 +555,8 @@
   ;; temporary, but if this turns out to be false, we will need to change this.
   ;; keep #cond inside the quasiquote so it remains in the macro expansion
   `(#cond
+    ((eq? INSTRUCTION_SET 'wasm)
+     (wasm-unimplemented "abandon-thread"))
     ((eq? INSTRUCTION_SET 'arm64)
      ;; branch to return-from-thread through the executable alias
      (rlet ((temp)
@@ -557,9 +578,22 @@
   kernel context. Will NOT deactivate on return, so this is intended for temporary threads.
   NOTE: this should only be done from the kernel, running on the
   kernel's stack."
-  (declare (asm-func object))
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    ;; rsp is the shadow stack pointer (a GOAL address). func returning is the trampoline.
+    (rlet ((pp :reg r13 :type process)
+           (sp :reg rsp :type uint))
+      (set! pp (-> this process))
+      (set! (-> pp status) 'running)
+      (set! (-> pp top-thread) this)
+      (let ((kernel-sp sp))
+        (set! sp (the uint (-> this stack-top)))
+        ;; called with the arguments the native version jumps with
+        (let ((ret ((the (function thread function object) func) this func)))
+          (set! sp kernel-sp)
+          ret))))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func object))
     (rlet ((pp :reg pp :type process)
            (sp :reg sp :type uint)
            (off :reg off :type uint)
@@ -598,6 +632,7 @@
       (.add func xoff)
       (.jr func)))
    (#t
+    (declare (asm-func object))
     (rlet ((pp :reg r13 :type process)
            (sp :reg rsp :type uint)
            (off :reg r15 :type uint)
@@ -641,12 +676,14 @@
 
 (defmethod thread-suspend ((unused cpu-thread))
   "Suspend the thread and return to the kernel."
-  (declare (asm-func none))
   ;; we begin this function with the thread object in pp.
   ;; not sure why we do this, maybe at one point suspending didn't clobber
   ;; temp registers?
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    (wasm-unimplemented "thread-suspend"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none))
     (rlet ((this :reg pp :type cpu-thread)
            (temp :reg x9 :type uint)
            ;; copy sp because these ARM64 store and compare forms cannot use it as a value
@@ -730,6 +767,7 @@
       (.pop :color #f ra)
       (.ret)))
    (#t
+    (declare (asm-func none))
     (rlet ((this :reg r13 :type cpu-thread)
            (temp :reg rax :type uint)
            (off :reg r15 :type uint)
@@ -821,11 +859,13 @@
   "Resume a suspended thread. Call this from the kernel only.
    This is also used to start a thread initialized with set-to-run.
    As a result of MIPS/x86 differences, there is a hack for this."
-  (declare (asm-func none)
-           ;;(print-asm)
-           )
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    (wasm-unimplemented "thread-resume"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none)
+             ;;(print-asm)
+             )
     (rlet ((this :reg pp :type cpu-thread)
            (temp :reg x9 :type uint)
            ;; keep the GOAL sp in x10 because the comparison cannot use sp
@@ -919,6 +959,9 @@
       (.add a4 a4)
       (.add a5 a5)))
    (#t
+    (declare (asm-func none)
+             ;;(print-asm)
+             )
     (rlet ((this :reg r13 :type cpu-thread)
            (temp :reg rax :type uint)
            (off :reg r15 :type uint)
@@ -1725,11 +1768,28 @@
   The return value is the result of the function.
   The allocation must be an address.
   Unlike the original, this only works on the first six parameters, but I think this doesn't matter."
-  (declare (asm-func object)
-           (allow-saved-regs) ;; very dangerous!
-           )
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    ;; the frame and the call, without the saved context: throw-dispatch can't unwind yet
+    (rlet ((pp :reg r13 :type process))
+      (let ((this (the catch-frame (&+ allocation *gtype-basic-offset*))))
+        (set! (-> this type) type-to-make)
+        (set! (-> this name) name)
+        (set! (-> this next) (-> pp stack-frame-top))
+        (set! (-> pp stack-frame-top) this)
+        (let ((ret ((the-super-u64-fucntion func)
+                    (-> param-block 0)
+                    (-> param-block 1)
+                    (-> param-block 2)
+                    (-> param-block 3)
+                    (-> param-block 4)
+                    (-> param-block 5))))
+          (set! (-> pp stack-frame-top) (-> pp stack-frame-top next))
+          (the object ret)))))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func object)
+             (allow-saved-regs) ;; very dangerous!
+             )
     (rlet ((pp :reg pp :type process)
            (temp :reg x9 :type uint)
            (off :reg off :type uint)
@@ -1807,6 +1867,9 @@
           (.ret)
           (the object ret)))))
    (#t
+    (declare (asm-func object)
+             (allow-saved-regs) ;; very dangerous!
+             )
     (rlet ((pp :reg r13 :type process)
            (temp :reg rax :type uint)
            (off :reg r15 :type uint)
@@ -1888,9 +1951,11 @@
 (defun throw-dispatch ((this catch-frame) value)
   "Throw the given value to the catch frame.
   Only can throw a 64-bit value. The original could throw 128 bits."
-  (declare (asm-func none))
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    (wasm-unimplemented "throw"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none))
     (rlet ((pp :reg pp :type process)
            (temp :reg x9 :type uint)
            (off :reg off :type uint)
@@ -1953,6 +2018,7 @@
       (.mov retval value)
       (.ret)))
    (#t
+    (declare (asm-func none))
     (rlet ((pp :reg r13 :type process)
            (temp :reg rax :type uint)
            (off :reg r15 :type uint)
@@ -2251,11 +2317,13 @@
    This stub remaps these saved registers to argument registers.
    It also creates a return trampoline to return-from-thread-dead, so if the main thread returns, the
    process is properly cleaned up by deactivate."
-  (declare (asm-func none)
-           ;;(print-asm)
-           )
   (#cond
+   ((eq? INSTRUCTION_SET 'wasm)
+    (wasm-unimplemented "set-to-run-bootstrap"))
    ((eq? INSTRUCTION_SET 'arm64)
+    (declare (asm-func none)
+             ;;(print-asm)
+             )
     (rlet ((s0 :reg x19 :type uint)
            (s1 :reg x23 :type uint)
            (s2 :reg x24 :type uint)
@@ -2282,6 +2350,9 @@
       (.add a4 a4)
       (.add a5 a5)))
    (#t
+    (declare (asm-func none)
+             ;;(print-asm)
+             )
     (rlet ((s0 :reg rbx :type uint)
            (s1 :reg rbp :type uint)
            (s2 :reg r10 :type uint)
@@ -2402,6 +2473,8 @@
        ;; and return (with no deactivate)
        ;; TODO: replace with abandon.
        (#cond
+        ((eq? INSTRUCTION_SET 'wasm)
+         (wasm-unimplemented "deactivate of the running process"))
         ((eq? INSTRUCTION_SET 'arm64)
          (let ((temp (the uint return-from-thread))) (rlet ((xoff :reg exec-off :type uint)) (+! temp xoff) (.jr temp))))
         (#t

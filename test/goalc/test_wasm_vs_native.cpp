@@ -75,3 +75,7 @@ TEST_F(WasmVsNativeTests, Int128Ops) {
 TEST_F(WasmVsNativeTests, VectorFloatOps) {
   check("vf-ops.gc");
 }
+
+TEST_F(WasmVsNativeTests, Int128Calls) {
+  check("i128-calls.gc");
+}

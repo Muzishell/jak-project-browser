@@ -1,0 +1,39 @@
+;; 128-bit function arguments and results (the wasm register area), printed as (high, low)
+
+(defmacro make128 (hi lo)
+  `(let ((r (the uint128 0)))
+     (.pcpyld r (the uint128 ,hi) (the uint128 ,lo))
+     r))
+
+(defmacro show128 (fmt q)
+  `(let ((buf (new 'stack-no-clear 'array 'uint64 2)))
+     (set! (-> (the (pointer uint128) buf)) ,q)
+     (_format #t ,fmt (-> buf 1) (-> buf 0))))
+
+;; GPR and 128-bit arguments mixed
+(defun i128-pick ((a int) (x uint128) (b int) (y uint128))
+  (if (> a b) x y))
+
+(defun i128-add-bytes ((x uint128) (y uint128))
+  (let ((r (the uint128 0)))
+    (.paddb r x y)
+    r))
+
+;; x has to survive a call that uses the register area itself
+(defun i128-keep ((x uint128))
+  (i128-pick 0 (make128 1 2) 1 (make128 3 4))
+  x)
+
+;; 128-bit results as arguments
+(defun i128-nested ((x uint128) (y uint128))
+  (i128-add-bytes (i128-pick 2 x 1 y) (i128-keep y)))
+
+(let ((a (make128 #x0f0e0d0c0b0a0908 #x0706050403020100))
+      (b (make128 #x1010101010101010 #x2020202020202020)))
+  (show128 "pick-a ~X ~X~%" (i128-pick 5 a 3 b))
+  (show128 "pick-b ~X ~X~%" (i128-pick 3 a 5 b))
+  (show128 "add ~X ~X~%" (i128-add-bytes a b))
+  (show128 "keep ~X ~X~%" (i128-keep a))
+  (show128 "nested ~X ~X~%" (i128-nested a b))
+  0
+  )

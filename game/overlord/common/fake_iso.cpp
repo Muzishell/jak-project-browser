@@ -51,12 +51,24 @@ void fake_iso_init_globals() {
   fake_iso_entry_count = 0;
 }
 
+namespace {
+//! The folder of out/ the iso files are in.
+std::string out_folder() {
+#ifdef __EMSCRIPTEN__
+  // goalc --instruction-set wasm writes its objects to out/<game>-wasm/ (see game.gp)
+  return fmt::format("{}-wasm", game_version_names[g_game_version]);
+#else
+  return game_version_names[g_game_version];
+#endif
+}
+}  // namespace
+
 /*!
  * Initialize the file system.
  */
 int fake_iso_FS_Init() {
-  for (const auto& f : fs::directory_iterator(file_util::get_jak_project_dir() / "out" /
-                                              game_version_names[g_game_version] / "iso")) {
+  for (const auto& f :
+       fs::directory_iterator(file_util::get_jak_project_dir() / "out" / out_folder() / "iso")) {
     if (f.is_regular_file() || f.is_symlink()) {
       ASSERT(fake_iso_entry_count < MAX_ISO_FILES);
       FakeIsoEntry* e = &fake_iso_entries[fake_iso_entry_count];
@@ -66,7 +78,7 @@ int fake_iso_FS_Init() {
                  fmt::format("[FAKEISO] couldn't find {} -- broken symlink?", file_name));
       strcpy(e->iso_name, file_name.c_str());
       e->full_path = fmt::format("{}/out/{}/iso/{}", file_util::get_jak_project_dir().string(),
-                                 game_version_names[g_game_version], file_name);
+                                 out_folder(), file_name);
       fake_iso_entry_count++;
     }
   }

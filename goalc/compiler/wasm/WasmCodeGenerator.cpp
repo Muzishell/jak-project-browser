@@ -24,6 +24,7 @@ constexpr const char* kTable = "table";
 constexpr const char* kEeBase = "ee_base";
 constexpr const char* kSt = "st";
 constexpr const char* kTableBase = "table_base";
+constexpr BinaryenIndex kMaxMemoryPages = 65536;  // 4 GB of 64 KB pages
 
 // INT_128 and VECTOR_FLOAT share one v128 local per register
 int class_key(RegClass reg_class) {
@@ -118,12 +119,46 @@ BinaryenIndex WasmFunctionGen::spill_local(int slot, RegClass reg_class) {
 }
 
 BinaryenExpressionRef WasmFunctionGen::get_reg_value(emitter::Register reg, RegClass reg_class) {
+  if (reg_class == RegClass::GPR_64) {
+    // the special registers live across calls, so they are globals, not locals
+    const auto& info = emitter::reg_info(emitter::InstructionSet::WASM);
+    if (reg == info.get_process_reg()) {
+      return BinaryenGlobalGet(module(), m_module_gen->process_pointer_global(),
+                               BinaryenTypeInt64());
+    }
+    if (reg == info.get_st_reg()) {
+      return BinaryenUnary(module(), BinaryenExtendUInt32(), st());
+    }
+    if (reg == info.get_offset_reg()) {
+      return BinaryenUnary(module(), BinaryenExtendUInt32(),
+                           BinaryenGlobalGet(module(), kEeBase, BinaryenTypeInt32()));
+    }
+    if (reg == emitter::RSP) {
+      // rsp is the shadow stack pointer, a GOAL address (wasm kernel code only)
+      return BinaryenUnary(
+          module(), BinaryenExtendUInt32(),
+          BinaryenGlobalGet(module(), m_module_gen->stack_pointer_global(), BinaryenTypeInt32()));
+    }
+  }
   return BinaryenLocalGet(module(), reg_local(reg, reg_class), wasm_type(reg_class));
 }
 
 BinaryenExpressionRef WasmFunctionGen::set_reg_value(emitter::Register reg,
                                                      RegClass reg_class,
                                                      BinaryenExpressionRef value) {
+  if (reg_class == RegClass::GPR_64) {
+    const auto& info = emitter::reg_info(emitter::InstructionSet::WASM);
+    if (reg == info.get_process_reg()) {
+      return BinaryenGlobalSet(module(), m_module_gen->process_pointer_global(), value);
+    }
+    if (reg == emitter::RSP) {
+      return BinaryenGlobalSet(module(), m_module_gen->stack_pointer_global(), wrap(value));
+    }
+    if (reg == info.get_st_reg() || reg == info.get_offset_reg()) {
+      throw std::runtime_error(fmt::format("wasm backend: register {} can't be written",
+                                           reg.print(emitter::InstructionSet::WASM)));
+    }
+  }
   return BinaryenLocalSet(module(), reg_local(reg, reg_class), value);
 }
 
@@ -186,6 +221,33 @@ BinaryenExpressionRef WasmFunctionGen::static_addr(const StaticObject* obj) {
   auto location = m_module_gen->static_location(obj);
   location.second += obj->get_addr_offset();
   return segment_offset_addr(module(), m_module_gen, location);
+}
+
+namespace {
+//! The register area slot of an xmm register: xmm0 (result) is slot 0, xmm1-8 (arguments) 1-8.
+int xmm_area_slot(emitter::Register reg) {
+  int slot = reg.id() - emitter::XMM0;
+  ASSERT(slot >= 0 && slot < kXmmAreaSlots);
+  return slot;
+}
+}  // namespace
+
+BinaryenExpressionRef WasmFunctionGen::xmm_area_addr(emitter::Register reg) {
+  return BinaryenBinary(
+      module(), BinaryenAddInt32(),
+      BinaryenGlobalGet(module(), m_module_gen->xmm_area_global(), BinaryenTypeInt32()),
+      i32(16 * xmm_area_slot(reg)));
+}
+
+BinaryenExpressionRef WasmFunctionGen::store_xmm_area(emitter::Register reg,
+                                                      BinaryenExpressionRef value) {
+  return BinaryenStore(module(), 16, 0, 0, xmm_area_addr(reg), value, BinaryenTypeVec128(),
+                       "memory");
+}
+
+BinaryenExpressionRef WasmFunctionGen::load_xmm_area(emitter::Register reg) {
+  return BinaryenLoad(module(), 16, false, 0, 0, BinaryenTypeVec128(), xmm_area_addr(reg),
+                      "memory");
 }
 
 void WasmFunctionGen::emit(BinaryenExpressionRef expr) {
@@ -309,6 +371,16 @@ void WasmFunctionGen::build() {
   // translate each IR, with the spill reloads before and spill stores after, like x86
   for (int b = 0; b < int(m_blocks.size()); b++) {
     m_current_block = b;
+    if (b == 0) {
+      // 128-bit arguments: the caller left them in the register area
+      for (const auto& constr : m_env->constraints()) {
+        if (constr.instr_idx == 0 &&
+            constr.desired_register.is_xmm(emitter::InstructionSet::WASM)) {
+          emit(set_reg_value(constr.desired_register, RegClass::INT_128,
+                             load_xmm_area(constr.desired_register)));
+        }
+      }
+    }
     for (int i = m_blocks[b].start; i < m_blocks[b].end; i++) {
       m_ir_idx = i;
       emit_spill_ops(i, true);
@@ -395,10 +467,10 @@ void WasmFunctionGen::build() {
 
 WasmModuleGen::WasmModuleGen(GameVersion version)
     : m_version(version), m_module(BinaryenModuleCreate()) {
-  BinaryenModuleSetFeatures(m_module, BinaryenFeatureMVP() | BinaryenFeatureMutableGlobals() |
-                                          BinaryenFeatureSignExt() | BinaryenFeatureSIMD128() |
-                                          BinaryenFeatureBulkMemory() |
-                                          BinaryenFeatureNontrappingFPToInt());
+  BinaryenModuleSetFeatures(
+      m_module, BinaryenFeatureMVP() | BinaryenFeatureMutableGlobals() | BinaryenFeatureSignExt() |
+                    BinaryenFeatureSIMD128() | BinaryenFeatureBulkMemory() |
+                    BinaryenFeatureNontrappingFPToInt() | BinaryenFeatureAtomics());
 
   BinaryenType params[kGoalArgCount];
   for (auto& p : params) {
@@ -406,9 +478,10 @@ WasmModuleGen::WasmModuleGen(GameVersion version)
   }
   m_goal_params = BinaryenTypeCreate(params, kGoalArgCount);
 
-  // no maximum: the importer decides the size
-  BinaryenSetMemory(m_module, 0, BinaryenIndex(-1), nullptr, nullptr, nullptr, nullptr, nullptr,
-                    nullptr, 0, false, false, kMemory);
+  // shared, since the runtime uses pthreads; a shared memory needs a maximum, so the largest
+  // (4 GB) and the importer decides the size
+  BinaryenSetMemory(m_module, 0, kMaxMemoryPages, nullptr, nullptr, nullptr, nullptr, nullptr,
+                    nullptr, 0, true, false, kMemory);
   BinaryenAddMemoryImport(m_module, kMemory, "env", kMemory, false);
   BinaryenAddTable(m_module, kTable, 0, BinaryenIndex(-1), BinaryenTypeFuncref(), nullptr);
   BinaryenAddTableImport(m_module, kTable, "env", kTable);
@@ -447,6 +520,22 @@ const char* WasmModuleGen::stack_pointer_global() {
     BinaryenAddGlobalImport(m_module, "sp", "env", "sp", BinaryenTypeInt32(), true);
   }
   return "sp";
+}
+
+const char* WasmModuleGen::xmm_area_global() {
+  if (!m_xmm_area_global) {
+    m_xmm_area_global = true;
+    BinaryenAddGlobalImport(m_module, "xmm_area", "env", "xmm_area", BinaryenTypeInt32(), false);
+  }
+  return "xmm_area";
+}
+
+const char* WasmModuleGen::process_pointer_global() {
+  if (!m_process_pointer_global) {
+    m_process_pointer_global = true;
+    BinaryenAddGlobalImport(m_module, "pp", "env", "pp", BinaryenTypeInt64(), true);
+  }
+  return "pp";
 }
 
 std::pair<int, int> WasmModuleGen::function_location(int idx_in_file) const {
