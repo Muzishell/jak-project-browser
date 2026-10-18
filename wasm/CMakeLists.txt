@@ -17,7 +17,8 @@ include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/fmt/include)
 include_directories(SYSTEM ${CMAKE_CURRENT_LIST_DIR}/include)
 
 # fmt uses malloc/free without including <cstdlib>, which Emscripten's libc++ doesn't pull in
-set(WASM_COMPILE_FLAGS -pthread -fwasm-exceptions -msimd128 -O2 -include stdlib.h --use-port=sdl3)
+# -msse4.2: Emscripten's SSE intrinsics on wasm SIMD, for the mips2c / VU code
+set(WASM_COMPILE_FLAGS -pthread -fwasm-exceptions -msimd128 -msse4.2 -O2 -include stdlib.h --use-port=sdl3)
 set(WASM_LINK_FLAGS
     -pthread
     --use-port=sdl3
@@ -71,6 +72,8 @@ add_library(common_wasm STATIC
 target_link_libraries(common_wasm fmt)
 
 set(GAME ${PROJECT_SOURCE_DIR}/game)
+# the mips2c code GOAL objects link to (decision 3), as plain C++
+file(GLOB MIPS2C_JAK1_SOURCES CONFIGURE_DEPENDS ${GAME}/mips2c/jak1_functions/*.cpp)
 add_executable(gk_headless
     ${GAME}/kernel/common/fileio.cpp
     ${GAME}/kernel/common/kboot.cpp
@@ -164,7 +167,10 @@ add_executable(gk_headless
     ${CMAKE_CURRENT_LIST_DIR}/kernel_test.cpp
     ${CMAKE_CURRENT_LIST_DIR}/libco_pthread.cpp
     ${CMAKE_CURRENT_LIST_DIR}/main_headless.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/stubs.cpp)
+    ${CMAKE_CURRENT_LIST_DIR}/mips2c_call.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/stubs.cpp
+    ${GAME}/mips2c/mips2c_table.cpp
+    ${MIPS2C_JAK1_SOURCES})
 target_include_directories(gk_headless PRIVATE ${PROJECT_SOURCE_DIR}/third-party/libco)
 target_link_libraries(gk_headless common_wasm)
 target_link_options(gk_headless PRIVATE --pre-js ${CMAKE_CURRENT_LIST_DIR}/goal_modules.js)

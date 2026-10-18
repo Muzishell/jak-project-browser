@@ -127,6 +127,8 @@ void set_goal_function(u32 goal_function_addr, void* func);
 u64 call(u32 goal_function_addr, u64 a0, u64 a1, u64 a2, u32 st);
 //! call_goal_on_stack: call a GOAL function with the GOAL stack pointer set to sp (a GOAL address).
 u64 call_on_stack(u32 goal_function_addr, u32 sp, u32 st);
+//! mips2c jalr (native _call_goal8_asm): call a GOAL function with eight arguments and pp set.
+u64 call8(u32 goal_function_addr, const u64* args, u64 pp);
 
 //! klink: compile the wasm module of an object file and reserve its functions' table entries.
 //! Returns a handle for instantiate_module; *table_base is the first entry.

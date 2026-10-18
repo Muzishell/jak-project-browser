@@ -21,6 +21,10 @@ int main(int argc, char** argv) {
     lg::error("could not find the jak-project folder");
     return 1;
   }
+  // no home directory under Emscripten: settings and saves go to the git-ignored out/ folder
+  // (the browser build mounts OPFS there instead, decision 11)
+  file_util::override_user_config_dir(file_util::get_jak_project_dir() / "out" / "jak1-wasm" / "user",
+                                      true);
 
   GameLaunchOptions game_options;
   game_options.disable_display = true;

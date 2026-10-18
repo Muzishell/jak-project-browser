@@ -1,7 +1,7 @@
 /*!
  * @file stubs.cpp
  * Entry points of the parts the headless Emscripten runtime leaves out (graphics, the debugger and
- * listener, the discord library, mips2c). Each does nothing, or the least the kernel needs.
+ * listener, the discord library). Each does nothing, or the least the kernel needs.
  */
 
 #include "common/cross_os_debug/xdbg.h"
@@ -11,7 +11,6 @@
 #include "game/graphics/gfx.h"
 #include "game/graphics/sceGraphicsInterface.h"
 #include "game/graphics/screenshot.h"
-#include "game/mips2c/mips2c_table.h"
 #include "game/system/Deci2Server.h"
 
 #include "third-party/discord-rpc/include/discord_rpc.h"
@@ -76,19 +75,3 @@ std::shared_ptr<GfxDisplay> GetMainDisplay() {
   return nullptr;
 }
 }  // namespace Display
-
-// mips2c/mips2c_table.cpp. mips2c functions are not wired up for wasm yet (they become table
-// entries like the C kernel functions, decision 3).
-namespace Mips2C {
-PerGameVersion<std::unordered_map<std::string, std::vector<void (*)()>>> gMips2CLinkCallbacks = {
-    {}, {}, {}, {}};
-LinkedFunctionTable gLinkedFunctionTable;
-Rng gRng;
-
-void LinkedFunctionTable::reg(const std::string&, u64 (*)(void*), u32) {}
-
-u32 LinkedFunctionTable::get(const std::string& name) {
-  ASSERT_MSG(false, "mips2c function " + name + " is not available in the wasm runtime yet");
-  return 0;
-}
-}  // namespace Mips2C

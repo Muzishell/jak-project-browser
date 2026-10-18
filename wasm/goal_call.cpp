@@ -116,6 +116,16 @@ u64 call_on_stack(u32 goal_function_addr, u32 sp, u32 st) {
   return result;
 }
 
+u64 call8(u32 goal_function_addr, const u64* args, u64 pp) {
+  u64 old_pp = get_pp();
+  set_pp(pp);
+  u64 result = goal_function(goal_function_addr)(args[0], args[1], args[2], args[3], args[4],
+                                                 args[5], args[6], args[7]);
+  check_no_suspend("mips2c jalr");
+  set_pp(old_pp);
+  return result;
+}
+
 int compile_module(const u8* wasm, u32 size, u32* table_base) {
   return js_goal_compile_module(wasm, size, table_base);
 }

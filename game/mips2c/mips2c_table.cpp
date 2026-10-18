@@ -12,6 +12,11 @@
 #include "game/kernel/jakx/kscheme.h"
 #include "game/runtime.h"
 
+#ifdef __EMSCRIPTEN__
+#include "wasm/goal_call.h"
+#include "wasm/mips2c_call.h"
+#endif
+
 extern "C" {
 #ifdef __aarch64__
 #ifdef __APPLE__
@@ -605,6 +610,12 @@ PerGameVersion<std::unordered_map<std::string, std::vector<void (*)()>>> gMips2C
       {jak1::draw_inline_array_instance_tie::link,
        jak1::draw_inline_array_prototype_tie_generic_asm::link}},
      {"generic-tie", {jak1::generic_tie_dma_to_spad_sync::link, jak1::generic_tie_convert::link}}},
+#ifdef __EMSCRIPTEN__
+    // the wasm runtime is jak1-only (wasm/CMakeLists.txt)
+    {},
+    {},
+    {},
+#else
     /////////// JAK 2
     {{"collide-func",
       {jak2::collide_do_primitives::link, jak2::moving_sphere_triangle_intersect::link}},
@@ -905,6 +916,7 @@ PerGameVersion<std::unordered_map<std::string, std::vector<void (*)()>>> gMips2C
        jakx::shadow_add_single_edges::link, jakx::shadow_add_double_edges::link,
        jakx::shadow_add_single_tris::link, jakx::shadow_add_double_tris::link}},
      {"cloth", {jakx::method_21_cloth_system::link}}},
+#endif
 };
 
 void LinkedFunctionTable::reg(const std::string& name, u64 (*exec)(void*), u32 stack_size) {
@@ -914,6 +926,15 @@ void LinkedFunctionTable::reg(const std::string& name, u64 (*exec)(void*), u32 s
               name);
   }
 
+#ifdef __EMSCRIPTEN__
+  // no machine code: the function object holds the table index of a wasm adapter that runs exec
+  // (wasm/mips2c_call.cpp)
+  Ptr<u8> func(::jak1::alloc_heap_object(s7.offset + jak1_symbols::FIX_SYM_GLOBAL_HEAP,
+                                         *(s7 + jak1_symbols::FIX_SYM_FUNCTION_TYPE), 8,
+                                         UNKNOWN_PP));
+  wasm_goal::set_goal_function(func.offset, wasm_goal::mips2c_function(exec, stack_size));
+  it.first->second.goal_trampoline = func;
+#else
   // this is short stub that will jump to the appropriate function.
   Ptr<u8> jump_to_asm;
   switch (g_game_version) {
@@ -1012,6 +1033,7 @@ void LinkedFunctionTable::reg(const std::string& name, u64 (*exec)(void*), u32 s
 
   // flush the executable view
   flush_icache_goal(jump_to_asm.offset, written);
+#endif
 }
 
 u32 LinkedFunctionTable::get(const std::string& name) {

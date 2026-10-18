@@ -1,0 +1,7 @@
+;; Load ENGINE.CGO from the kernel, like the listener's (load-package "engine" global).
+;; For the headless wasm runtime: -wasm-test <this object> wasm-load-engine <frames>
+
+(defun wasm-load-engine ()
+  (load-package "engine" global)
+  (format #t "engine loaded, ~D packages~%" (length *kernel-packages*))
+  0)
