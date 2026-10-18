@@ -110,7 +110,8 @@ add_executable(gk_web
     ${TP}/stb_image/stb_image.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../runtime_wasm.cpp
     ${CMAKE_CURRENT_LIST_DIR}/main_web.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/stubs_web.cpp)
+    ${CMAKE_CURRENT_LIST_DIR}/stubs_web.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/webgl_compat.cpp)
 target_compile_definitions(gk_web PRIVATE WASM_DISPLAY)
 target_include_directories(gk_web PRIVATE ${TP}/glad/include ${TP}/imgui)
 target_link_libraries(gk_web runtime_core common_web imgui_wasm)
@@ -131,6 +132,8 @@ target_link_options(gk_web PRIVATE
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js"
     "SHELL:--shell-file ${CMAKE_CURRENT_LIST_DIR}/shell.html")
 set_target_properties(gk_web PROPERTIES SUFFIX ".html")
+# relink (repack the preloaded files) when a shader changes
+file(GLOB WEB_SHADERS CONFIGURE_DEPENDS ${OPENGL}/shaders/*)
 set_property(TARGET gk_web APPEND PROPERTY LINK_DEPENDS
              ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js
-             ${CMAKE_CURRENT_LIST_DIR}/shell.html)
+             ${CMAKE_CURRENT_LIST_DIR}/shell.html ${WEB_SHADERS})

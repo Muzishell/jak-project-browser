@@ -887,7 +887,13 @@ void OpenGLRenderer::init_bucket_renderers_jak1() {
 namespace {
 Fbo make_fbo(int w, int h, int msaa, bool make_zbuf_and_stencil) {
   Fbo result;
+#ifdef __EMSCRIPTEN__
+  // WebGL2 has no multisample textures (only multisample renderbuffers): no MSAA for now
+  (void)msaa;
+  bool use_multisample = false;
+#else
   bool use_multisample = msaa > 1;
+#endif
 
   // make framebuffer object
   glGenFramebuffers(1, &result.fbo_id);

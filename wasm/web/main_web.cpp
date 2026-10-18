@@ -37,6 +37,12 @@ int main(int argc, char** argv) {
     lg::error("usage: -wasm-test <object.o> <function> <frames>");
     return 1;
   }
-  auto status = exec_runtime(game_options, arg_count, args.data());
-  return status == RuntimeExitStatus::EXIT ? 0 : int(status);
+  try {
+    auto status = exec_runtime(game_options, arg_count, args.data());
+    return status == RuntimeExitStatus::EXIT ? 0 : int(status);
+  } catch (std::exception& ex) {
+    // like game/main.cpp
+    lg::error("Unexpected exception occurred - {}", ex.what());
+    throw;
+  }
 }

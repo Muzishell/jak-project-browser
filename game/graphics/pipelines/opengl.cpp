@@ -96,6 +96,13 @@ struct GraphicsData {
 
 std::unique_ptr<GraphicsData> g_gfx_data;
 
+#ifdef __EMSCRIPTEN__
+namespace webgl_compat {
+// wasm/web/webgl_compat.cpp
+void install();
+}  // namespace webgl_compat
+#endif
+
 static bool gl_inited = false;
 static int gl_init(GfxGlobalSettings& settings) {
   prof().instant_event("ROOT");
@@ -245,9 +252,13 @@ static std::shared_ptr<GfxDisplay> gl_make_display(int width,
     {
       auto p = scoped_prof("startup::sdl::glad_init");
 #ifdef __EMSCRIPTEN__
-      // WebGL2: only the loader works (gladLoadGL opens a native GL library). glad reads
-      // "OpenGL ES 3.0" from GL_VERSION and loads the GL 3.0 entry points WebGL2 provides.
-      if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+      // WebGL2: only the loader works (gladLoadGL opens a native GL library); glad looks up every
+      // entry point by name, then wasm/web/webgl_compat.cpp adapts the desktop-only ones.
+      bool loaded = gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+      if (loaded) {
+        webgl_compat::install();
+      }
+      if (!loaded) {
 #else
       gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
       if (!gladLoadGL()) {
