@@ -345,8 +345,19 @@ It type checks the arguments for the entry function.
          ;; - reset the stack to the top, so we can't just call the code.
          (#cond
           ((eq? INSTRUCTION_SET 'wasm)
-           (wasm-unimplemented "enter-state")
-           #f)
+           ;; start the main thread over: set-to-run-bootstrap calls the code with these
+           ;; arguments on an empty stack, and deactivates when it returns
+           (let ((thread (-> pp main-thread)))
+             (set! (-> thread rreg 0) (the uint (-> new-state code)))
+             (set! (-> thread rreg 1) (the uint arg0))
+             (set! (-> thread rreg 2) (the uint arg1))
+             (set! (-> thread rreg 3) (the uint arg2))
+             (set! (-> thread rreg 4) (the uint arg3))
+             (set! (-> thread rreg 5) (the uint 0))
+             (set! (-> thread rreg 6) (the uint 0)))
+           (wasm-thread-restart)
+           #f ;; can't get here
+           )
           ((eq? INSTRUCTION_SET 'arm64)
            (rlet ((func)
                   (sp :reg sp :type uint)
@@ -424,8 +435,9 @@ It type checks the arguments for the entry function.
          ;; temporary, but if this turns out to be false, we will need to change this.
          (#cond
           ((eq? INSTRUCTION_SET 'wasm)
-           (wasm-unimplemented "abandon-thread")
-           #f)
+           (wasm-thread-exit)
+           #f ;; can't get here
+           )
           ((eq? INSTRUCTION_SET 'arm64)
            ;; branch to return-from-thread through the executable alias
            (rlet ((temp)

@@ -8,6 +8,7 @@
 
 #include "game/kernel/common/kscheme.h"
 #include "game/runtime.h"
+#include "wasm/goal_thread.h"
 
 // GOAL's shadow stack pointer and process pointer are the mutable "sp" and "pp" globals the GOAL
 // modules import. They are JS objects of the EE thread, where all GOAL code runs
@@ -63,6 +64,14 @@ void set_pp(u64 pp) {
   js_goal_set_pp(u32(pp));
 }
 
+u32 get_sp() {
+  return js_goal_get_sp();
+}
+
+void set_sp(u32 sp) {
+  js_goal_set_sp(sp);
+}
+
 u64 nothing_func(u64, u64, u64, u64, u64, u64, u64, u64) {
   return 0;
 }
@@ -90,6 +99,7 @@ u64 call(u32 goal_function_addr, u64 a0, u64 a1, u64 a2, u32 st) {
   u64 old_pp = get_pp();
   set_pp(st);
   u64 result = goal_function(goal_function_addr)(a0, a1, a2, 0, 0, 0, 0, 0);
+  check_no_suspend("call_goal");
   set_pp(old_pp);
   return result;
 }
@@ -100,6 +110,7 @@ u64 call_on_stack(u32 goal_function_addr, u32 sp, u32 st) {
   js_goal_set_sp(sp);
   set_pp(st);
   u64 result = goal_function(goal_function_addr)(0, 0, 0, 0, 0, 0, 0, 0);
+  check_no_suspend("call_goal_on_stack");
   set_pp(old_pp);
   js_goal_set_sp(old_sp);
   return result;

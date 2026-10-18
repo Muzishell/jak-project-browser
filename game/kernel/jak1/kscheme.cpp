@@ -26,7 +26,7 @@
 #include "game/mips2c/mips2c_table.h"
 
 #ifdef __EMSCRIPTEN__
-#include "fmt/format.h"
+#include "wasm/goal_thread.h"
 #endif
 
 using namespace jak1_symbols;
@@ -523,15 +523,6 @@ Ptr<Function> make_stack_arg_function_from_c_win32(void* func) {
  * The implementation is to create a simple trampoline function which jumps to the C function.
  */
 #ifdef __EMSCRIPTEN__
-/*!
- * Called by kernel code that needs what the wasm runtime doesn't have yet (thread suspend/resume,
- * throw). name is a GOAL string.
- */
-void wasm_unimplemented(u32 name) {
-  ASSERT_MSG(false,
-             fmt::format("{} is not supported by the wasm runtime yet", Ptr<String>(name)->data()));
-}
-
 /*!
  * A GOAL function object whose code is a C++ function of type wasm_goal::GoalFunc: the slot after
  * the type tag holds its table index, like the functions of the wasm GOAL modules.
@@ -1763,8 +1754,15 @@ s32 InitHeapAndSymbol() {
 
   // game stuff
 #ifdef __EMSCRIPTEN__
-  // kernel features the wasm runtime can't run yet (INSTRUCTION_SET 'wasm in gkernel.gc)
-  make_function_symbol_from_c("wasm-unimplemented", GOAL_C_FUNC(wasm_unimplemented));
+  // thread switches and throw (INSTRUCTION_SET 'wasm in gkernel.gc and gstate.gc)
+  make_function_symbol_from_c("wasm-thread-run", GOAL_C_FUNC(wasm_goal::thread_run));
+  make_function_symbol_from_c("wasm-thread-suspend", GOAL_C_FUNC(wasm_goal::thread_suspend));
+  make_function_symbol_from_c("wasm-thread-exit", GOAL_C_FUNC(wasm_goal::thread_exit));
+  make_function_symbol_from_c("wasm-thread-restart", GOAL_C_FUNC(wasm_goal::thread_restart));
+  make_function_symbol_from_c("wasm-thread-free", GOAL_C_FUNC(wasm_goal::thread_free));
+  make_function_symbol_from_c("wasm-call-thread", GOAL_C_FUNC(wasm_goal::call_thread));
+  make_function_symbol_from_c("wasm-catch", GOAL_C_FUNC(wasm_goal::catch_frame));
+  make_function_symbol_from_c("wasm-throw", GOAL_C_FUNC(wasm_goal::throw_to));
 #endif
   make_stack_arg_function_symbol_from_c("link-begin", GOAL_C_STACK_FUNC(link_begin));
   make_function_symbol_from_c("link-resume", GOAL_C_FUNC(link_resume));

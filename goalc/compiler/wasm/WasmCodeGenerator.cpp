@@ -606,6 +606,24 @@ WasmObject WasmModuleGen::run(FileEnv* env, const TypeSystem* ts) {
         fmt::format("wasm backend generated an invalid module for {}", env->name()));
   }
 
+  // thread suspend/resume (CLAUDE.MD, decision 5): Asyncify lets the runtime unwind a thread's
+  // call stack into a buffer and rewind it later. Its state globals are imported, so one unwind
+  // goes through the functions of every module. Any call_indirect may suspend, so every function
+  // that makes a call is instrumented.
+  BinaryenSetPassArgument("asyncify-import-globals", "1");
+  const char* passes[] = {"asyncify"};
+  BinaryenModuleRunPasses(m_module, passes, 1);
+  BinaryenClearPassArguments();
+  // the runtime sets the state globals itself
+  for (const char* name : {"asyncify_start_unwind", "asyncify_stop_unwind", "asyncify_start_rewind",
+                           "asyncify_stop_rewind", "asyncify_get_state"}) {
+    BinaryenRemoveExport(m_module, name);
+  }
+  if (!BinaryenModuleValidate(m_module)) {
+    throw std::runtime_error(
+        fmt::format("wasm backend: Asyncify made an invalid module for {}", env->name()));
+  }
+
   auto result = BinaryenModuleAllocateAndWrite(m_module, nullptr);
   out.wasm.assign((u8*)result.binary, (u8*)result.binary + result.binaryBytes);
   free(result.binary);

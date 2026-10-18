@@ -18,6 +18,22 @@ Module.goalProcessPointer = () => {
   return Module.goalPp;
 };
 
+// Binaryen Asyncify's state (0 normal, 1 unwinding, 2 rewinding) and the address of its data
+// header, the mutable i32 "__asyncify_state" and "__asyncify_data" globals every module imports,
+// so a thread suspend unwinds through all modules (wasm/goal_thread.cpp)
+Module.goalAsyncifyState = () => {
+  if (!Module.goalAsyncState) {
+    Module.goalAsyncState = new WebAssembly.Global({ value: "i32", mutable: true }, 0);
+  }
+  return Module.goalAsyncState;
+};
+Module.goalAsyncifyData = () => {
+  if (!Module.goalAsyncData) {
+    Module.goalAsyncData = new WebAssembly.Global({ value: "i32", mutable: true }, 0);
+  }
+  return Module.goalAsyncData;
+};
+
 // modules compiled by klink, waiting to be instantiated once their object is linked
 Module.goalModules = new Map();
 Module.goalNextModule = 1;
@@ -54,6 +70,8 @@ Module.goalInstantiateModule = (handle, eeBase, st, xmmArea, segBases, symbolOff
     sp: Module.goalStackPointer(),
     pp: Module.goalProcessPointer(),
     xmm_area: i32(xmmArea),
+    __asyncify_state: Module.goalAsyncifyState(),
+    __asyncify_data: Module.goalAsyncifyData(),
   };
   const sym = {};
   for (const imp of WebAssembly.Module.imports(module)) {

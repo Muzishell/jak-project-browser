@@ -46,6 +46,9 @@ const stackPointer = new WebAssembly.Global({ value: "i32", mutable: true }, 0x8
 let processPointer = null;
 // 128-bit register area (xmm0-8, 16 bytes each), a linear address in the unused low memory
 const XMM_AREA = 0x100;
+// Asyncify state shared by the modules; nothing suspends here, so it stays 0 (normal)
+const asyncifyState = new WebAssembly.Global({ value: "i32", mutable: true }, 0);
+const asyncifyData = new WebAssembly.Global({ value: "i32", mutable: true }, 0);
 function alloc(size, align = 16) {
   heapTop = Math.ceil(heapTop / align) * align;
   const addr = heapTop;
@@ -420,7 +423,8 @@ function runFile(objectPath, wasmPath) {
 
   processPointer ??= new WebAssembly.Global({ value: "i64", mutable: true }, BigInt(ST));
   const env = { memory, table, ee_base: i32(EE_BASE), st: i32(ST), table_base: i32(tableBase),
-                sp: stackPointer, pp: processPointer, xmm_area: i32(XMM_AREA) };
+                sp: stackPointer, pp: processPointer, xmm_area: i32(XMM_AREA),
+                __asyncify_state: asyncifyState, __asyncify_data: asyncifyData };
   SEG_NAMES.forEach((name, seg) => (env[name] = i32(segBase[seg])));
   const sym = {};
   for (const imp of WebAssembly.Module.imports(module)) {

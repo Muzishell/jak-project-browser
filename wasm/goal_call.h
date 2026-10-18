@@ -32,6 +32,9 @@ using GoalFunc = u64 (*)(u64, u64, u64, u64, u64, u64, u64, u64);
 //! The process pointer (the x86 r13 / GOAL pp register): the mutable "pp" global of the modules.
 u64 get_pp();
 void set_pp(u64 pp);
+//! The GOAL shadow stack pointer (the rsp register), a GOAL address: the mutable "sp" global.
+u32 get_sp();
+void set_sp(u32 sp);
 
 template <typename T>
 T from_reg(u64 value) {

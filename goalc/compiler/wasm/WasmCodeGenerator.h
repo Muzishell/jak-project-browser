@@ -34,6 +34,9 @@
  *  - a GOAL function value is an EE address holding the function's u32 table index;
  *    a call is call_indirect on the index loaded from that address.
  *  - each function is exported under its GOAL internal name.
+ *  - the module is instrumented by Binaryen's Asyncify pass for thread suspend/resume, with the
+ *    mutable i32 globals "__asyncify_state" and "__asyncify_data" imported, so every module shares
+ *    one unwind/rewind state (wasm/goal_thread.cpp drives it).
  */
 
 #include <map>

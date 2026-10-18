@@ -160,6 +160,8 @@ add_executable(gk_headless
     ${GAME}/sound/sdshim.cpp
     ${CMAKE_CURRENT_LIST_DIR}/runtime_wasm.cpp
     ${CMAKE_CURRENT_LIST_DIR}/goal_call.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/goal_thread.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/kernel_test.cpp
     ${CMAKE_CURRENT_LIST_DIR}/libco_pthread.cpp
     ${CMAKE_CURRENT_LIST_DIR}/main_headless.cpp
     ${CMAKE_CURRENT_LIST_DIR}/stubs.cpp)

@@ -25,6 +25,10 @@
 #include "game/kernel/jak1/kmachine.h"
 #include "game/sce/libscf.h"
 
+#ifdef __EMSCRIPTEN__
+#include "wasm/kernel_test.h"
+#endif
+
 using namespace ee;
 
 namespace jak1 {
@@ -115,6 +119,11 @@ void KernelCheckAndDispatch() {
       ProcessListenerMessage(new_message);
     }
 
+#ifdef __EMSCRIPTEN__
+    // the headless runtime's test mode stands in for the listener (wasm/kernel_test.h)
+    wasm_kernel_test::before_dispatch();
+#endif
+
     // remember the old listener function
     auto old_listener = ListenerFunction->value;
     // dispatch the kernel
@@ -138,6 +147,10 @@ void KernelCheckAndDispatch() {
         ListenerFunction->value = s7.offset;
       }
     }
+
+#ifdef __EMSCRIPTEN__
+    wasm_kernel_test::after_dispatch();
+#endif
 
     auto time_ms = kernel_dispatch_timer.getMs();
     if (time_ms > 50) {

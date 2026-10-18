@@ -238,6 +238,9 @@
     (set! (-> this resume-hook) (method-of-object this thread-resume))
     ;; remember how much space we have for the backup stack.
     (set! (-> this stack-size) stack-size)
+    (#when (eq? INSTRUCTION_SET 'wasm)
+      ;; no suspended wasm frames (the id thread-resume keeps in freg 0)
+      (set! (-> this freg 0) 0.0))
     this))
 
 (defmethod asize-of ((this cpu-thread))
@@ -417,13 +420,29 @@
 ;; to get back to the kernel, we use this global symbol.
 (define-extern *kernel-sp* pointer)
 
-;; wasm has no return addresses or saved registers to switch: the thread switches below are
-;; plain calls there, and what needs suspend/resume waits for it (CLAUDE.MD, decision 5).
+;; wasm has no return addresses or saved registers to switch: the thread switches below call the
+;; C kernel (wasm/goal_thread.h), which suspends with Asyncify and leaves threads and throws with
+;; C++ exceptions (CLAUDE.MD, decision 5). The GOAL stack is still copied to the backup stack.
 ;; The asm-func declares are in the native branches so the wasm ones are normal functions.
 (#cond
  ((eq? INSTRUCTION_SET 'wasm)
-  ;; C kernel: reports a kernel feature the wasm runtime doesn't have yet, then aborts
-  (define-extern wasm-unimplemented (function string none))))
+  (define-extern set-to-run-bootstrap (function none))
+  ;; run a main thread until it suspends or leaves: bootstrap fresh sp stack-top blob-slot process
+  (define-extern wasm-thread-run (function function int pointer pointer pointer process none))
+  ;; unwind to wasm-thread-run, returns when the thread is resumed
+  (define-extern wasm-thread-suspend (function none))
+  ;; leave the running thread, back to the kernel
+  (define-extern wasm-thread-exit (function none))
+  ;; start the main thread over with set-to-run-bootstrap
+  (define-extern wasm-thread-restart (function none))
+  ;; forget the suspended stack of a thread
+  (define-extern wasm-thread-free (function pointer none))
+  ;; run a temporary thread: func thread
+  (define-extern wasm-call-thread (function function thread object))
+  ;; call func in a catch frame: frame func param-block
+  (define-extern wasm-catch (function catch-frame function (pointer uint64) object))
+  ;; return value from the wasm-catch of a frame
+  (define-extern wasm-throw (function catch-frame object none))))
 
 (defun return-from-thread ()
   "Context switch to the saved kernel context now.
@@ -433,8 +452,8 @@
   GOAL expressions."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    ;; reset-and-call returns to the kernel by returning
-    (wasm-unimplemented "return-from-thread"))
+    ;; back to the wasm-thread-run or wasm-call-thread that entered the thread
+    (wasm-thread-exit))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none)
              ;(print-asm)
@@ -491,7 +510,9 @@
   The return register is not preserved here, instead we return the value of deactivate"
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    (wasm-unimplemented "return-from-thread-dead"))
+    (rlet ((pp :reg r13 :type process))
+      (deactivate pp)
+      (wasm-thread-exit)))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none)
              ;(print-asm)
@@ -556,7 +577,7 @@
   ;; keep #cond inside the quasiquote so it remains in the macro expansion
   `(#cond
     ((eq? INSTRUCTION_SET 'wasm)
-     (wasm-unimplemented "abandon-thread"))
+     (wasm-thread-exit))
     ((eq? INSTRUCTION_SET 'arm64)
      ;; branch to return-from-thread through the executable alias
      (rlet ((temp)
@@ -580,7 +601,8 @@
   kernel's stack."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    ;; rsp is the shadow stack pointer (a GOAL address). func returning is the trampoline.
+    ;; rsp is the shadow stack pointer (a GOAL address). func returning or leaving the thread
+    ;; (return-from-thread) gets back here.
     (rlet ((pp :reg r13 :type process)
            (sp :reg rsp :type uint))
       (set! pp (-> this process))
@@ -588,8 +610,7 @@
       (set! (-> pp top-thread) this)
       (let ((kernel-sp sp))
         (set! sp (the uint (-> this stack-top)))
-        ;; called with the arguments the native version jumps with
-        (let ((ret ((the (function thread function object) func) this func)))
+        (let ((ret (wasm-call-thread func this)))
           (set! sp kernel-sp)
           ret))))
    ((eq? INSTRUCTION_SET 'arm64)
@@ -681,7 +702,27 @@
   ;; temp registers?
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    (wasm-unimplemented "thread-suspend"))
+    ;; the wasm frames are unwound by wasm-thread-suspend, the GOAL stack is backed up like x86
+    (rlet ((this :reg r13 :type cpu-thread)
+           (sp :reg rsp :type uint))
+      ;; any pc but set-to-run-bootstrap: thread-resume rewinds the thread
+      (set! (-> this pc) (the pointer 0))
+      (set! (-> this sp) (the pointer sp))
+      (let ((proc (-> this process)))
+        (when (> (process-stack-used proc) (-> this stack-size))
+          (break) ;; too much stack has been used and we can't suspend!
+          )
+        ;; mark the process as suspended and copy the stack
+        (set! (-> proc status) 'suspended)
+        (let ((cur (the (pointer uint64) (-> this stack-top)))
+              (save (&+ (the (pointer uint64) (-> this stack)) (-> this stack-size))))
+          (while (> (the int cur) (the int sp))
+            (set! cur (the (pointer uint64) (&- cur 8)))
+            (set! save (the (pointer uint64) (&- save 8)))
+            (set! (-> save) (-> cur)))))
+      (set! this (the cpu-thread 0))
+      ;; returns when the thread is resumed, with pp set by thread-resume
+      (wasm-thread-suspend)))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none))
     (rlet ((this :reg pp :type cpu-thread)
@@ -861,7 +902,31 @@
    As a result of MIPS/x86 differences, there is a hack for this."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    (wasm-unimplemented "thread-resume"))
+    (rlet ((pp :reg r13 :type process)
+           (sp :reg rsp :type uint))
+      (let ((this thread-to-resume)
+            (kernel-sp sp))
+        ;; restore the stack (sp is a GOAL pointer)
+        (let ((cur (the (pointer uint64) (-> this stack-top)))
+              (restore (&+ (the (pointer uint64) (-> this stack)) (-> this stack-size))))
+          (while (> (the int cur) (the int (-> this sp)))
+            (set! cur (the (pointer uint64) (&- cur 8)))
+            (set! restore (the (pointer uint64) (&- restore 8)))
+            (set! (-> cur) (-> restore))))
+        ;; setup process
+        (set! (-> (-> this process) top-thread) this)
+        (set! (-> (-> this process) status) 'running)
+        (set! pp (-> this process))
+        ;; start the thread with set-to-run-bootstrap after a set-to-run, otherwise rewind it.
+        ;; returns once it suspends or leaves. The suspended wasm frames are kept under an id in
+        ;; freg 0, unused by wasm.
+        (wasm-thread-run set-to-run-bootstrap
+                         (if (= (the uint (-> this pc)) (the uint set-to-run-bootstrap)) 1 0)
+                         (-> this sp)
+                         (-> this stack-top)
+                         (&-> this freg 0)
+                         (-> this process))
+        (set! sp kernel-sp))))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none)
              ;;(print-asm)
@@ -1770,22 +1835,18 @@
   Unlike the original, this only works on the first six parameters, but I think this doesn't matter."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    ;; the frame and the call, without the saved context: throw-dispatch can't unwind yet
+    ;; wasm-catch returns the result of func or the value thrown to this frame. There is no
+    ;; context to save: a throw is a C++ exception caught there.
     (rlet ((pp :reg r13 :type process))
       (let ((this (the catch-frame (&+ allocation *gtype-basic-offset*))))
         (set! (-> this type) type-to-make)
         (set! (-> this name) name)
         (set! (-> this next) (-> pp stack-frame-top))
         (set! (-> pp stack-frame-top) this)
-        (let ((ret ((the-super-u64-fucntion func)
-                    (-> param-block 0)
-                    (-> param-block 1)
-                    (-> param-block 2)
-                    (-> param-block 3)
-                    (-> param-block 4)
-                    (-> param-block 5))))
-          (set! (-> pp stack-frame-top) (-> pp stack-frame-top next))
-          (the object ret)))))
+        (let ((ret (wasm-catch this func param-block)))
+          ;; pop this frame (a throw to it already has)
+          (set! (-> pp stack-frame-top) (-> this next))
+          ret))))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func object)
              (allow-saved-regs) ;; very dangerous!
@@ -1953,7 +2014,10 @@
   Only can throw a 64-bit value. The original could throw 128 bits."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    (wasm-unimplemented "throw"))
+    (rlet ((pp :reg r13 :type process))
+      ;; discard catch frames through this frame
+      (set! (-> pp stack-frame-top) (-> this next))
+      (wasm-throw this value)))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none))
     (rlet ((pp :reg pp :type process)
@@ -2319,7 +2383,19 @@
    process is properly cleaned up by deactivate."
   (#cond
    ((eq? INSTRUCTION_SET 'wasm)
-    (wasm-unimplemented "set-to-run-bootstrap"))
+    ;; wasm-thread-run calls this with no arguments: the saved registers are read from the
+    ;; main thread, and returning is return-from-thread-dead
+    (rlet ((pp :reg r13 :type process))
+      (let ((thread (-> pp main-thread)))
+        ((the-super-u64-fucntion (-> thread rreg 0))
+         (-> thread rreg 1)
+         (-> thread rreg 2)
+         (-> thread rreg 3)
+         (-> thread rreg 4)
+         (-> thread rreg 5)
+         (-> thread rreg 6))))
+    (return-from-thread-dead)
+    (none))
    ((eq? INSTRUCTION_SET 'arm64)
     (declare (asm-func none)
              ;;(print-asm)
@@ -2431,6 +2507,9 @@
   vars from within your exit handlers."
   ;; don't do anything if we already died.
   (unless (eq? (-> this status) 'dead)
+    (#when (eq? INSTRUCTION_SET 'wasm)
+      ;; drop the wasm frames of a suspended main thread (none if it is running)
+      (if (-> this main-thread) (wasm-thread-free (&-> (-> this main-thread) freg 0))))
     ;; set our state to a dead-state that does nothing.
     (set! (-> this next-state) dead-state)
     ;; call entity handler if we're from an entity.
@@ -2474,7 +2553,7 @@
        ;; TODO: replace with abandon.
        (#cond
         ((eq? INSTRUCTION_SET 'wasm)
-         (wasm-unimplemented "deactivate of the running process"))
+         (wasm-thread-exit))
         ((eq? INSTRUCTION_SET 'arm64)
          (let ((temp (the uint return-from-thread))) (rlet ((xoff :reg exec-off :type uint)) (+! temp xoff) (.jr temp))))
         (#t
