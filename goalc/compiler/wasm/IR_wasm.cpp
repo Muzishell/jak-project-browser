@@ -158,6 +158,13 @@ void IR_LoadConstant64::do_codegen_wasm(WasmFunctionGen* gen) {
 }
 
 void IR_LoadSymbolPointer::do_codegen_wasm(WasmFunctionGen* gen) {
+  if (m_name == "#f" && is_128(m_dest)) {
+    // a cond without else that gives 128-bit values: movq xmm, st (upper 64 bits zeroed)
+    gen->emit(gen->set(
+        m_dest, BinaryenSIMDReplace(gen->module(), BinaryenReplaceLaneVecI64x2(), v128_zero(gen), 0,
+                                    unary(gen, BinaryenExtendUInt32(), gen->st()))));
+    return;
+  }
   if (!is_gpr(m_dest)) {
     unsupported(this);
   }
@@ -475,6 +482,15 @@ void IR_Nop::do_codegen_wasm(WasmFunctionGen* gen) {
 void IR_AsmBreak::do_codegen_wasm(WasmFunctionGen* gen) {
   // x86 int3 stops in the debugger; there is no debugger to continue from here
   gen->emit(BinaryenUnreachable(gen->module()));
+}
+
+// .nop.vf / .wait.vf: x86 fnop / fwait, nothing to wait for in wasm
+void IR_AsmFNop::do_codegen_wasm(WasmFunctionGen* gen) {
+  (void)gen;
+}
+
+void IR_AsmFWait::do_codegen_wasm(WasmFunctionGen* gen) {
+  (void)gen;
 }
 
 void IR_LoadConstOffset::do_codegen_wasm(WasmFunctionGen* gen) {

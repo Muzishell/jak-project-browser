@@ -1,0 +1,43 @@
+;; IR the engine needs: .nop.vf / .wait.vf and #f as a 128-bit cond result
+
+(defmacro make128 (hi lo)
+  `(let ((r (the uint128 0)))
+     (.pcpyld r (the uint128 ,hi) (the uint128 ,lo))
+     r))
+
+;; printed as (high, low - #f) so the result doesn't depend on where the runtime put #f
+(defmacro show128 (fmt q)
+  `(let ((buf (new 'stack-no-clear 'array 'uint64 2)))
+     (set! (-> (the (pointer uint128) buf)) ,q)
+     (_format #t ,fmt (-> buf 1) (- (-> buf 0) (the-as uint #f)))))
+
+;; the cond result is a 128-bit register, so the missing else is movq xmm, st on x86
+(defun i128-or-false ((a int) (q uint128))
+  (if (> a 0) q))
+
+(defun vf-nop-wait ((dst (pointer uint128)) (src (pointer uint128)))
+  (rlet ((v1 :class vf)
+         (v2 :class vf))
+    (.lvf v1 src)
+    (.nop.vf)
+    (.add.vf v2 v1 v1)
+    (.wait.vf)
+    (.nop.vf)
+    (.svf dst v2)
+    (.wait.vf))
+  0)
+
+(let ((q (make128 #x1111222233334444 #x5555666677778888)))
+  (let ((buf (new 'stack-no-clear 'array 'uint64 2)))
+    (set! (-> (the (pointer uint128) buf)) (i128-or-false 1 q))
+    (_format #t "q ~X ~X~%" (-> buf 1) (-> buf 0)))
+  (show128 "false ~X ~X~%" (i128-or-false 0 q)))
+
+(let ((a (new 'stack-no-clear 'array 'uint128 1))
+      (b (new 'stack-no-clear 'array 'uint128 1)))
+  ;; (1.0 2.0 3.0 4.0)
+  (set! (-> (the (pointer uint64) a) 0) #x400000003f800000)
+  (set! (-> (the (pointer uint64) a) 1) #x4080000040400000)
+  (vf-nop-wait (the (pointer uint128) b) (the (pointer uint128) a))
+  (_format #t "nop-wait ~X ~X~%" (-> (the (pointer uint64) b) 1) (-> (the (pointer uint64) b) 0)))
+0

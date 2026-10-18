@@ -89,7 +89,8 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
       and the kernel loop runs.
 - [ ] M4 Asyncify suspend/resume: `ENGINE`/`GAME` load and processes tick headless.
       Slice 1 done: kernel suspend/resume, go and throw work (Jak1KernelTest cases pass in wasm).
-      Next: wasm codegen for the rest of the engine's IR (`ENGINE` stops at `matrix.gc`, `.wait.vf`).
+      Slice 2 done: `ENGINE.CGO` builds for wasm. Next: mips2c functions in the wasm runtime, then
+      load ENGINE headless; `GAME.CGO` needs the decompiler's `tpage-dir.txt` (`task extract`).
 - [ ] M5 WebGL2 renderer: Geyser Rock on screen in Chrome.
 - [ ] M6 Sandover, audio, Gamepad API, performance.
 - [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
@@ -164,3 +165,5 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-18: A suspend can't cross a C++ frame (call_goal, a catch frame): checked, it aborts with a message. A temporary thread (trans/post) that suspends is abandoned, as on x86, which saves it to a backup stack nobody restores.
 - 2026-10-18: The `suspend` macro's KERNEL_DEBUG stack check subtracted `off` from rsp; in wasm rsp is already a GOAL address (`#if` in gkernel-h.gc).
 - 2026-10-18: Kernel tests in wasm: `-wasm-test <obj> <function> <frames>` (wasm/kernel_test.h) links an object and runs the function as the listener function; `node test/goalc/wasm/kernel-test.mjs` (build steps in the file) runs Basic, RunFunctionInProcess, StateAndXmm and ThrowXmm and they match x86. It compares only format #t (the listener's print channel): format 0 goes to stdout on native too (e.g. "GOT UNKNOWN INIT: dead" when an init deactivates itself).
+- 2026-10-18: M4 slice 2 — `build/WasmBackend/bin/goalc/goalc --game jak1 --instruction-set wasm --cmd '(make-cgo "ENGINE")'` builds all 313 targets (`out/jak1-wasm/iso/ENGINE.CGO`). Only two gaps: `.nop.vf`/`.wait.vf` (no-ops) and `#f` into a 128-bit cond result (movq st, wasm-vs-native `engine-misc.gc`). Engine has no asm-funcs; its asm-like code is `def-mips2c` (C++).
+- 2026-10-18: Next blockers: `def-mips2c` functions hit the wasm runtime's `LinkedFunctionTable::get` assert (wasm/stubs.cpp) — they need real game/mips2c code as table entries (decision 3) before ENGINE can load; `(make-cgo "GAME")` stops on missing `decompiler_out/jak1/textures/tpage-dir.txt` (needs `task extract`, not a codegen issue).

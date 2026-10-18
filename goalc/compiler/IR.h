@@ -631,6 +631,7 @@ class IR_AsmBreak : public IR_Asm {
 class IR_AsmFNop : public IR_Asm {
  public:
   IR_AsmFNop();
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
@@ -644,6 +645,7 @@ class IR_AsmFNop : public IR_Asm {
 class IR_AsmFWait : public IR_Asm {
  public:
   IR_AsmFWait();
+  IR_WASM_CODEGEN
   std::string print() override;
   RegAllocInstr to_rai() override;
   void do_codegen_x86(emitter::ObjectGenerator* gen,
