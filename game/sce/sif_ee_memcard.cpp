@@ -33,7 +33,7 @@ struct CardData {
 void CardData::save_to_file(const std::string& name) {
   Serializer ser;
   ser.from_ptr(&is_formatted);
-  ser.save<size_t>(files.size());
+  ser.save<Serializer::SizeField>(files.size());
   for (auto& f : files) {
     ser.save_str(&f.first);
     ser.from_pod_vector(&f.second.data);
@@ -49,7 +49,7 @@ void CardData::load_from_file(const std::string& name) {
 
   ser.from_ptr(&is_formatted);
   files.clear();
-  size_t file_count = ser.load<size_t>();
+  size_t file_count = ser.load<Serializer::SizeField>();
   for (size_t i = 0; i < file_count; i++) {
     auto file_name = ser.load_string();
     auto& file_entry = files[file_name];

@@ -126,6 +126,13 @@ static int gl_init(GfxGlobalSettings& settings) {
     auto p = scoped_prof("startup::sdl::set_gl_attributes");
 
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef __EMSCRIPTEN__
+    // WebGL2 = OpenGL ES 3.0 (CLAUDE.MD, decision 8)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     if (settings.debug) {
       SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
@@ -137,6 +144,7 @@ static int gl_init(GfxGlobalSettings& settings) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 #else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+#endif
 #endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
@@ -236,8 +244,14 @@ static std::shared_ptr<GfxDisplay> gl_make_display(int width,
   if (!gl_inited) {
     {
       auto p = scoped_prof("startup::sdl::glad_init");
+#ifdef __EMSCRIPTEN__
+      // WebGL2: only the loader works (gladLoadGL opens a native GL library). glad reads
+      // "OpenGL ES 3.0" from GL_VERSION and loads the GL 3.0 entry points WebGL2 provides.
+      if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+#else
       gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
       if (!gladLoadGL()) {
+#endif
         lg::error("GL init fail");
         dialogs::create_error_message_dialog("Critical Error Encountered",
                                              "Unable to initialize OpenGL API.\nOpenGOAL requires "
@@ -302,8 +316,10 @@ static std::shared_ptr<GfxDisplay> gl_make_display(int width,
     // setup imgui
 #ifdef __APPLE__
     init_imgui(window, gl_context, "#version 410");
+#elif defined __EMSCRIPTEN__
+    init_imgui(window, gl_context, "#version 300 es");
 #else
-    init_imgui(window, gl_context, "#version 430");
+  init_imgui(window, gl_context, "#version 430");
 #endif
   }
 

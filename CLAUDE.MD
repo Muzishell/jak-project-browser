@@ -110,6 +110,17 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 4. klink instantiates modules against the shared Memory/Table; kernel version check passes and
    `kernel-dispatcher` runs from the C kernel loop.
 
+### M5 plan
+
+1. Browser target `gk_web` (wasm/CMakeLists.txt) with the jak1 OpenGL renderer: SDL3 + WebGL2 on
+   an OffscreenCanvas (PROXY_TO_PTHREAD), glad kept for the GL declarations and loaded through
+   `SDL_GL_GetProcAddress`. Dev files via `--preload-file` of `out/jak1-wasm/` (local only, never
+   published; fetch + OPFS is decision 9 / M7). Done when the kernel boots in Chrome and frames
+   are presented (cleared screen).
+2. WebGL2 fixes from decision 8 behind `__EMSCRIPTEN__`: shaders rewritten to GLSL ES 3.00 at
+   load, 1D textures, `GL_UNSIGNED_INT_8_8_8_8_REV`, multi-draw, polygon mode, debug callback.
+3. With the owner's extracted ISO: GAME.CGO + Geyser Rock `.fr3`, then the first level frame.
+
 ## How to work
 
 - Before changing a subsystem, read its native code path end to end and state the plan briefly.
@@ -170,4 +181,9 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-18: mips2c in wasm — game/mips2c (jak1 functions + mips2c_table.cpp, other games' tables `#ifdef`'d out) is compiled into the runtime. `LinkedFunctionTable::reg` stores one of 256 fixed adapters (`wasm/mips2c_call.cpp`: `slot<N>` builds the ExecutionContext from the arg regs, pp, st, and reserves the stack size below the GOAL sp, like `_mips2c_call_systemv`); `jalr` calls `wasm_goal::call8`. SSE intrinsics come from Emscripten's emulation (`-msse4.2`).
 - 2026-10-18: ENGINE loads headless: `-wasm-test out/jak1-wasm/obj/load-engine.o wasm-load-engine 30` (test/goalc/source_templates/kernel/load-engine.gc) links all 306 ENGINE.CGO objects, runs their top levels and 30 kernel frames without traps. Missing sound banks / subtitles are the absent game data. Not compared with native yet (native needs the listener for this).
 - 2026-10-18: The wasm runtime has no home directory: main_headless overrides the user config dir to `out/jak1-wasm/user` (git-ignored); without it pc-settings.gc landed in `./OpenGOAL`.
+- 2026-10-18: M5 slice 1 — wasm/CMakeLists.txt now builds `runtime_core` (everything but the renderer and entry point) plus `gk_headless` (Node, `stubs_headless.cpp`) and `gk_web` (wasm/web/gk_web.cmake: the jak1 OpenGL renderer, imgui in GLES3 mode, glad, zstd in C). Run: `node wasm/web/serve.mjs` (COOP/COEP) then http://localhost:8090/gk_web.html?args=-fakeiso+-debug+-nosound. Shaders and `out/jak1-wasm/iso` are `--preload-file`d under /jak-project (local dev only).
+- 2026-10-18: In Chrome, gk_web boots the kernel like Node, SDL3 creates the window and a WebGL2 context on the main pthread (OffscreenCanvas). GL: SDL asks for an ES 3.0 context; only `gladLoadGLLoader` (no `gladLoadGL`); glad.c looks up every entry point by name under Emscripten, since WebGL2 has functions glad files under GL 4.x (they were NULL with a parsed "3.0").
+- 2026-10-18: wasm32 size_t is 4 bytes: `Serializer` lengths (`Serializer::SizeField`, used by TFrag3Data and the memcard file) and the zstd header in compress.cpp are u64 under Emscripten, so .fr3 files and saves written by 64-bit tools read the same.
+- 2026-10-18: Shaders: `Shader.cpp` rewrites them to GLSL ES 3.00 at load under Emscripten (version line first + precisions, sampler1D → sampler2D with `texelFetch(s, ivec2(i, 0), 0)`, `noperspective` dropped). Remaining: 38 of 46 programs rely on desktop GLSL's implicit int → float/uint conversions (`x * 2`, `u == 1`), which ES rejects — needs the owner's call (edit the shared shader files vs. a web copy).
+- 2026-10-18: Debugging traps in pthreads: wasm/web/web_pre.js prints the worker-side stack to the console (the page only gets the message).
 - 2026-10-18: Blocked on the owner: `iso_data/jak1` is empty, so GAME.CGO (needs `task extract`), the .fr3 files and every level are unavailable. M5's "Geyser Rock on screen" needs the owner's ISO extracted first.

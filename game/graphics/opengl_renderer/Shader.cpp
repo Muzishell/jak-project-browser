@@ -6,6 +6,53 @@
 
 #include "game/graphics/pipelines/opengl.h"
 
+#ifdef __EMSCRIPTEN__
+#include <regex>
+#include <vector>
+
+namespace {
+/*!
+ * WebGL2 takes GLSL ES 3.00, the shaders are GLSL 4.10 core (CLAUDE.MD, decision 8):
+ * - the version line (first, as ES requires), plus default precisions (ES has none for most
+ *   samplers)
+ * - 1D textures are 2D textures of height 1: sampler1D -> sampler2D, texelFetch(s, i, 0) ->
+ *   texelFetch(s, ivec2(i, 0), 0) (the only way the shaders read them)
+ * - no noperspective in ES: those varyings are interpolated with perspective (the sky)
+ */
+std::string to_glsl_es(const std::string& src) {
+  // ES wants the version on the first line: what came before it (comments) moves after it
+  const std::string desktop_version = "#version 410 core";
+  auto version_pos = src.find(desktop_version);
+  ASSERT(version_pos != std::string::npos);
+  auto out =
+      "#version 300 es\n"
+      "precision highp float;\n"
+      "precision highp int;\n"
+      "precision highp sampler2D;\n"
+      "precision highp usampler2D;\n"
+      "precision highp isampler2D;\n"
+      "precision highp sampler2DArray;\n"
+      "precision highp sampler3D;\n" +
+      src.substr(0, version_pos) + src.substr(version_pos + desktop_version.size());
+  std::smatch match;
+  std::string rest = out;
+  std::vector<std::string> samplers_1d;
+  const std::regex sampler_1d("sampler1D\\s+(\\w+)");
+  while (std::regex_search(rest, match, sampler_1d)) {
+    samplers_1d.push_back(match[1]);
+    rest = match.suffix();
+  }
+  out = std::regex_replace(out, std::regex("sampler1D"), "sampler2D");
+  for (const auto& name : samplers_1d) {
+    out = std::regex_replace(
+        out, std::regex("texelFetch\\(\\s*" + name + "\\s*,\\s*([^,]+),\\s*0\\s*\\)"),
+        "texelFetch(" + name + ", ivec2($1, 0), 0)");
+  }
+  return std::regex_replace(out, std::regex("noperspective\\s+"), "");
+}
+}  // namespace
+#endif
+
 Shader::Shader(const std::string& shader_name, GameVersion version) : m_name(shader_name) {
   const std::string height_scale = version == GameVersion::Jak1 ? "1.0" : "0.5";
   const std::string scissor_height = version == GameVersion::Jak1 ? "448.0" : "416.0";
@@ -21,6 +68,10 @@ Shader::Shader(const std::string& shader_name, GameVersion version) : m_name(sha
   vert_src = std::regex_replace(vert_src, std::regex("SCISSOR_HEIGHT"), scissor_height);
   frag_src = std::regex_replace(frag_src, std::regex("SCISSOR_HEIGHT"), scissor_height);
   vert_src = std::regex_replace(vert_src, std::regex("SCISSOR_ADJUST"), "(" + scissor_adjust + ")");
+#ifdef __EMSCRIPTEN__
+  vert_src = to_glsl_es(vert_src);
+  frag_src = to_glsl_es(frag_src);
+#endif
 
   m_vert_shader = glCreateShader(GL_VERTEX_SHADER);
   const char* src = vert_src.c_str();

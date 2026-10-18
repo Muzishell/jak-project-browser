@@ -64,9 +64,9 @@ void TfragTree::serialize(Serializer& ser) {
   ser.from_ptr(&kind);
 
   if (ser.is_saving()) {
-    ser.save<size_t>(draws.size());
+    ser.save<Serializer::SizeField>(draws.size());
   } else {
-    draws.resize(ser.load<size_t>());
+    draws.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : draws) {
     draw.serialize(ser);
@@ -379,9 +379,9 @@ void TfragTree::unpack() {
 
 void TieTree::serialize(Serializer& ser) {
   if (ser.is_saving()) {
-    ser.save<size_t>(static_draws.size());
+    ser.save<Serializer::SizeField>(static_draws.size());
   } else {
-    static_draws.resize(ser.load<size_t>());
+    static_draws.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : static_draws) {
     draw.serialize(ser);
@@ -390,18 +390,18 @@ void TieTree::serialize(Serializer& ser) {
   ser.from_ptr(&category_draw_indices);
 
   if (ser.is_saving()) {
-    ser.save<size_t>(instanced_wind_draws.size());
+    ser.save<Serializer::SizeField>(instanced_wind_draws.size());
   } else {
-    instanced_wind_draws.resize(ser.load<size_t>());
+    instanced_wind_draws.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : instanced_wind_draws) {
     draw.serialize(ser);
   }
 
   if (ser.is_saving()) {
-    ser.save<size_t>(wind_instance_info.size());
+    ser.save<Serializer::SizeField>(wind_instance_info.size());
   } else {
-    wind_instance_info.resize(ser.load<size_t>());
+    wind_instance_info.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& inst : wind_instance_info) {
     inst.serialize(ser);
@@ -422,9 +422,9 @@ void ShrubTree::serialize(Serializer& ser) {
   ser.from_pod_vector(&indices);
   packed_vertices.serialize(ser);
   if (ser.is_saving()) {
-    ser.save<size_t>(static_draws.size());
+    ser.save<Serializer::SizeField>(static_draws.size());
   } else {
-    static_draws.resize(ser.load<size_t>());
+    static_draws.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : static_draws) {
     draw.serialize(ser);
@@ -445,9 +445,9 @@ void Hfragment::serialize(Serializer& ser) {
   ser.from_pod_vector(&corners);
 
   if (ser.is_saving()) {
-    ser.save<size_t>(buckets.size());
+    ser.save<Serializer::SizeField>(buckets.size());
   } else {
-    buckets.resize(ser.load<size_t>());
+    buckets.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& x : buckets) {
     x.serialize(ser);
@@ -509,18 +509,18 @@ void Blerc::serialize(Serializer& ser) {
 
 void MercModifiableDrawGroup::serialize(Serializer& ser) {
   if (ser.is_saving()) {
-    ser.save<size_t>(mod_draw.size());
+    ser.save<Serializer::SizeField>(mod_draw.size());
   } else {
-    mod_draw.resize(ser.load<size_t>());
+    mod_draw.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : mod_draw) {
     draw.serialize(ser);
   }
 
   if (ser.is_saving()) {
-    ser.save<size_t>(fix_draw.size());
+    ser.save<Serializer::SizeField>(fix_draw.size());
   } else {
-    fix_draw.resize(ser.load<size_t>());
+    fix_draw.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : fix_draw) {
     draw.serialize(ser);
@@ -535,9 +535,9 @@ void MercModifiableDrawGroup::serialize(Serializer& ser) {
 
 void MercEffect::serialize(Serializer& ser) {
   if (ser.is_saving()) {
-    ser.save<size_t>(all_draws.size());
+    ser.save<Serializer::SizeField>(all_draws.size());
   } else {
-    all_draws.resize(ser.load<size_t>());
+    all_draws.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& draw : all_draws) {
     draw.serialize(ser);
@@ -554,9 +554,9 @@ void MercEffect::serialize(Serializer& ser) {
 void MercModel::serialize(Serializer& ser) {
   ser.from_str(&name);
   if (ser.is_saving()) {
-    ser.save<size_t>(effects.size());
+    ser.save<Serializer::SizeField>(effects.size());
   } else {
-    effects.resize(ser.load<size_t>());
+    effects.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& effect : effects) {
     effect.serialize(ser);
@@ -570,9 +570,9 @@ void MercModel::serialize(Serializer& ser) {
 
 void MercModelGroup::serialize(Serializer& ser) {
   if (ser.is_saving()) {
-    ser.save<size_t>(models.size());
+    ser.save<Serializer::SizeField>(models.size());
   } else {
-    models.resize(ser.load<size_t>());
+    models.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& model : models) {
     model.serialize(ser);
@@ -593,18 +593,18 @@ void Level::serialize(Serializer& ser) {
   ser.from_str(&level_name);
 
   if (ser.is_saving()) {
-    ser.save<size_t>(textures.size());
+    ser.save<Serializer::SizeField>(textures.size());
   } else {
-    textures.resize(ser.load<size_t>());
+    textures.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& tex : textures) {
     tex.serialize(ser);
   }
 
   if (ser.is_saving()) {
-    ser.save<size_t>(index_textures.size());
+    ser.save<Serializer::SizeField>(index_textures.size());
   } else {
-    index_textures.resize(ser.load<size_t>());
+    index_textures.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& tex : index_textures) {
     tex.serialize(ser);
@@ -612,9 +612,9 @@ void Level::serialize(Serializer& ser) {
 
   for (int geom = 0; geom < 3; ++geom) {
     if (ser.is_saving()) {
-      ser.save<size_t>(tfrag_trees[geom].size());
+      ser.save<Serializer::SizeField>(tfrag_trees[geom].size());
     } else {
-      tfrag_trees[geom].resize(ser.load<size_t>());
+      tfrag_trees[geom].resize(ser.load<Serializer::SizeField>());
     }
     for (auto& tree : tfrag_trees[geom]) {
       tree.serialize(ser);
@@ -623,9 +623,9 @@ void Level::serialize(Serializer& ser) {
 
   for (int geom = 0; geom < 4; ++geom) {
     if (ser.is_saving()) {
-      ser.save<size_t>(tie_trees[geom].size());
+      ser.save<Serializer::SizeField>(tie_trees[geom].size());
     } else {
-      tie_trees[geom].resize(ser.load<size_t>());
+      tie_trees[geom].resize(ser.load<Serializer::SizeField>());
     }
     for (auto& tree : tie_trees[geom]) {
       tree.serialize(ser);
@@ -633,9 +633,9 @@ void Level::serialize(Serializer& ser) {
   }
 
   if (ser.is_saving()) {
-    ser.save<size_t>(shrub_trees.size());
+    ser.save<Serializer::SizeField>(shrub_trees.size());
   } else {
-    shrub_trees.resize(ser.load<size_t>());
+    shrub_trees.resize(ser.load<Serializer::SizeField>());
   }
   for (auto& tree : shrub_trees) {
     tree.serialize(ser);

@@ -32,6 +32,13 @@
  */
 class Serializer {
  public:
+#ifdef __EMSCRIPTEN__
+  // size_t is 4 bytes on wasm32; the files are written by 64-bit tools with 8-byte sizes
+  using SizeField = u64;
+#else
+  using SizeField = size_t;
+#endif
+
   /*!
    * Construct a serializer in writing mode. This saves data from the program into a buffer that can
    * later be accessed with get_save_result.
@@ -116,9 +123,9 @@ class Serializer {
   void from_str(std::string* str) {
     // size, then data.
     if (is_loading()) {
-      str->resize(load<size_t>());
+      str->resize(load<SizeField>());
     } else {
-      save<size_t>(str->size());
+      save<SizeField>(str->size());
     }
     from_raw_data(str->data(), str->size());
   }
@@ -149,18 +156,18 @@ class Serializer {
   template <typename T>
   void from_pod_vector(std::vector<T>* vec) {
     if (is_saving()) {
-      save<size_t>(vec->size());
+      save<SizeField>(vec->size());
     } else {
-      vec->resize(load<size_t>());
+      vec->resize(load<SizeField>());
     }
     from_raw_data(vec->data(), sizeof(T) * vec->size());
   }
 
   void from_string_vector(std::vector<std::string>* vec) {
     if (is_saving()) {
-      save<size_t>(vec->size());
+      save<SizeField>(vec->size());
     } else {
-      vec->resize(load<size_t>());
+      vec->resize(load<SizeField>());
     }
     for (auto& str : *vec) {
       from_str(&str);

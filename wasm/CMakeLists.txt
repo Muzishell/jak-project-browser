@@ -1,9 +1,11 @@
-# Emscripten build of the headless jak1 runtime (M3). Configure with:
+# Emscripten builds of the jak1 runtime. Configure with:
 #   emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release
-# Only what the C kernel, the overlord and the IOP need is built: the sound library without an
-# audio backend, input through Emscripten's SDL3 port, no graphics, listener or other games.
-# wasm/stubs.cpp provides the few entry points of the left-out parts the kernel still calls.
-# Runs under Node with the real filesystem (NODERAWFS) for now; browser file access comes later.
+# - gk_headless (M3): no graphics, runs under Node with the real filesystem (NODERAWFS).
+#   wasm/stubs_headless.cpp stands in for the renderer.
+# - gk_web (M5): the OpenGL renderer on WebGL2, for the browser (wasm/web/).
+# Both: the C kernel, overlord, IOP, mips2c, the sound library without an audio backend and input
+# through Emscripten's SDL3 port; no listener or other games. wasm/stubs.cpp has the few entry
+# points of the left-out parts the kernel still calls.
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,9 +33,7 @@ set(WASM_LINK_FLAGS
     -sMAXIMUM_MEMORY=4GB
     -sALLOW_MEMORY_GROWTH=1
     -sALLOW_TABLE_GROWTH=1
-    -sNODERAWFS=1
     -sEXIT_RUNTIME=1
-    -sENVIRONMENT=node
     # function names in stack traces
     --profiling-funcs)
 
@@ -74,7 +74,9 @@ target_link_libraries(common_wasm fmt)
 set(GAME ${PROJECT_SOURCE_DIR}/game)
 # the mips2c code GOAL objects link to (decision 3), as plain C++
 file(GLOB MIPS2C_JAK1_SOURCES CONFIGURE_DEPENDS ${GAME}/mips2c/jak1_functions/*.cpp)
-add_executable(gk_headless
+
+# everything but the renderer and the entry point
+add_library(runtime_core STATIC
     ${GAME}/kernel/common/fileio.cpp
     ${GAME}/kernel/common/kboot.cpp
     ${GAME}/kernel/common/kdgo.cpp
@@ -161,17 +163,25 @@ add_executable(gk_headless
     ${GAME}/sound/common/envelope.cpp
     ${GAME}/sound/sndshim.cpp
     ${GAME}/sound/sdshim.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/runtime_wasm.cpp
     ${CMAKE_CURRENT_LIST_DIR}/goal_call.cpp
     ${CMAKE_CURRENT_LIST_DIR}/goal_thread.cpp
     ${CMAKE_CURRENT_LIST_DIR}/kernel_test.cpp
     ${CMAKE_CURRENT_LIST_DIR}/libco_pthread.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/main_headless.cpp
     ${CMAKE_CURRENT_LIST_DIR}/mips2c_call.cpp
     ${CMAKE_CURRENT_LIST_DIR}/stubs.cpp
     ${GAME}/mips2c/mips2c_table.cpp
     ${MIPS2C_JAK1_SOURCES})
-target_include_directories(gk_headless PRIVATE ${PROJECT_SOURCE_DIR}/third-party/libco)
-target_link_libraries(gk_headless common_wasm)
-target_link_options(gk_headless PRIVATE --pre-js ${CMAKE_CURRENT_LIST_DIR}/goal_modules.js)
+target_include_directories(runtime_core PRIVATE ${PROJECT_SOURCE_DIR}/third-party/libco)
+target_link_libraries(runtime_core common_wasm)
+
+# gk_headless: Node, no renderer
+add_executable(gk_headless
+    ${CMAKE_CURRENT_LIST_DIR}/runtime_wasm.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/main_headless.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/stubs_headless.cpp)
+target_link_libraries(gk_headless runtime_core)
+target_link_options(gk_headless PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node
+                    --pre-js ${CMAKE_CURRENT_LIST_DIR}/goal_modules.js)
 set_property(TARGET gk_headless APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/goal_modules.js)
+
+include(${CMAKE_CURRENT_LIST_DIR}/web/gk_web.cmake)

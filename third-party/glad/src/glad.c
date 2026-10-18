@@ -2252,6 +2252,13 @@ static void find_coreGL(void) {
 		max_loaded_major = 4;
 		max_loaded_minor = 3;
 	}
+#ifdef __EMSCRIPTEN__
+	/* OpenGOAL web (WebGL2 = OpenGL ES 3.0): ES 3.0 has functions glad files under later desktop
+	   versions (glTexStorage2D, glInvalidateFramebuffer...), so look up every entry point by name.
+	   The ones WebGL2 doesn't have stay NULL. */
+	GLAD_GL_VERSION_3_1 = GLAD_GL_VERSION_3_2 = GLAD_GL_VERSION_3_3 = 1;
+	GLAD_GL_VERSION_4_0 = GLAD_GL_VERSION_4_1 = GLAD_GL_VERSION_4_2 = GLAD_GL_VERSION_4_3 = 1;
+#endif
 }
 
 int gladLoadGLLoader(GLADloadproc load) {

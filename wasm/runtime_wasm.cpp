@@ -4,7 +4,8 @@
  * step for step, minus what the browser runtime doesn't have yet:
  *  - EE memory is a block of linear memory (no mmap at a fixed address, no low-memory guard)
  *  - no DMP/deci2 thread: the listener is not ported (CLAUDE.MD, decision 4)
- *  - no display, sound or discord
+ *  - no sound or discord; a display only in gk_web (WASM_DISPLAY), where the graphics loop runs
+ *    on the main pthread like runtime.cpp's main thread
  * Keep it in sync with runtime.cpp when the jak1 boot sequence there changes.
  */
 
@@ -47,6 +48,9 @@
 #include "game/overlord/jak1/srpc.h"
 #include "game/overlord/jak1/stream.h"
 #include "game/runtime.h"
+#ifdef WASM_DISPLAY
+#include "game/graphics/gfx.h"
+#endif
 #include "game/sce/deci2.h"
 #include "game/sce/iop.h"
 #include "game/sce/libcdvd_ee.h"
@@ -123,7 +127,10 @@ void iop_runner(SystemThreadInterface& iface) {
   iop.reset_allocator();
   ee::LIBRARY_sceSif_register(&iop);
   iop::LIBRARY_register(&iop);
-  // no display, so nothing calls iop.kernel.signal_vblank()
+#ifdef WASM_DISPLAY
+  Gfx::register_vsync_callback([&iop]() { iop.kernel.signal_vblank(); });
+#endif
+  // headless: no display, so nothing calls iop.kernel.signal_vblank()
 
   jak1::dma_init_globals();
   iso_init_globals();
@@ -163,6 +170,9 @@ void iop_runner(SystemThreadInterface& iface) {
       iop.wait_run_iop(*wait_duration);
     }
   }
+#ifdef WASM_DISPLAY
+  Gfx::clear_vsync_callback();
+#endif
 }
 }  // namespace
 
@@ -172,6 +182,13 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
   g_main_thread_id = std::this_thread::get_id();
   g_game_version = game_options.game_version;
   ASSERT_MSG(g_game_version == GameVersion::Jak1, "the wasm runtime is jak1 only");
+#ifdef WASM_DISPLAY
+  bool enable_display = !game_options.disable_display;
+  // graphics first: the EE uploads textures during boot
+  if (enable_display) {
+    Gfx::Init(g_game_version);
+  }
+#endif
 
   iop::LIBRARY_INIT();
   ee::LIBRARY_INIT_sceCd();
@@ -187,9 +204,21 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
   ee_worker_thread.start(ee_worker_runner);
   ee_thread.start(ee_runner);
 
+#ifdef WASM_DISPLAY
+  // the video loop runs here until the EE signals a shutdown
+  if (enable_display) {
+    Gfx::Loop([]() { return MasterExit == RuntimeExitStatus::RUNNING; });
+  }
+#endif
+
   ee_thread.join();
   tm.shutdown();
   tm.join();
+#ifdef WASM_DISPLAY
+  if (enable_display) {
+    Gfx::Exit();
+  }
+#endif
 
   lg::info("GOAL Runtime Shutdown (code {})", fmt::underlying(MasterExit));
   free(g_ee_main_mem);
