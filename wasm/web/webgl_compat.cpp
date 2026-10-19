@@ -3,15 +3,23 @@
  * The desktop GL calls the renderer makes that WebGL2 (OpenGL ES 3.0) doesn't have, as adapters
  * installed over glad's function pointers (CLAUDE.MD, decision 8). The renderer code is unchanged.
  *  - 1D textures are 2D textures of height 1 (the shaders read them with texelFetch(s, ivec2(i, 0)))
- *  - GL_UNSIGNED_INT_8_8_8_8_REV with RGBA is the byte order of GL_UNSIGNED_BYTE on little endian
+ *  - GL_UNSIGNED_INT_8_8_8_8_REV with RGBA is the byte order of GL_UNSIGNED_BYTE on little endian;
+ *    GL_UNSIGNED_INT_8_8_8_8 is the reverse (pixels byte-swapped on upload)
  *  - primitive restart is always on in WebGL2, with the index the renderer sets (0xFFFFFFFF)
  *  - multi-draw is a loop of draws (WEBGL_multi_draw later, if profiling asks)
  *  - polygon mode (debug wireframe) and the debug output do nothing
  *  - texture size queries and readback come from a size table and a framebuffer read
+ *  - one texture level is never attached at two color attachments of a framebuffer (WebGL makes
+ *    such a framebuffer unsupported)
+ *  - WebGL errors are logged per frame; kLocateErrors finds the call that made one
  */
 
-#include <unordered_map>
+#include <emscripten.h>
 
+#include <unordered_map>
+#include <vector>
+
+#include "common/common_types.h"
 #include "common/log/log.h"
 
 #include "third-party/glad/include/glad/glad.h"
@@ -33,14 +41,119 @@ GLenum map_target(GLenum target) {
 }
 
 GLenum map_type(GLenum format, GLenum type) {
-  if (type == GL_UNSIGNED_INT_8_8_8_8_REV && format == GL_RGBA) {
+  if ((type == GL_UNSIGNED_INT_8_8_8_8_REV || type == GL_UNSIGNED_INT_8_8_8_8) &&
+      format == GL_RGBA) {
     return GL_UNSIGNED_BYTE;
   }
   return type;
 }
 
+// GL_UNSIGNED_INT_8_8_8_8 packs R in the high byte of each u32: the bytes of each pixel reversed
+// compared to GL_UNSIGNED_BYTE. Returns the pixels to upload as UNSIGNED_BYTE.
+const void* map_pixels(GLenum format,
+                       GLenum type,
+                       const void* pixels,
+                       size_t pixel_count,
+                       std::vector<u32>* scratch) {
+  if (!pixels || type != GL_UNSIGNED_INT_8_8_8_8 || format != GL_RGBA) {
+    return pixels;
+  }
+  scratch->resize(pixel_count);
+  const u32* in = (const u32*)pixels;
+  for (size_t i = 0; i < pixel_count; i++) {
+    (*scratch)[i] = __builtin_bswap32(in[i]);
+  }
+  return scratch->data();
+}
+
 // level-0 sizes of 2D textures, for glGetTexLevelParameteriv
 std::unordered_map<GLuint, std::pair<GLint, GLint>> texture_sizes;
+
+// WebGL errors are logged once per frame (log_errors), a limited number. To find the call that
+// makes one, set kLocateErrors: draws, clears and texture uploads then check the error state and
+// the framebuffer before and after, with a JS stack. Off by default: the checks are synchronous
+// GL queries on every call.
+constexpr bool kLocateErrors = false;
+int logged_errors = 0;
+constexpr int kMaxLoggedErrors = 40;
+
+void check_error(const char* what, GLenum target, GLint internalformat, GLenum format, GLenum type) {
+  GLenum err = glGetError();
+  if (err != GL_NO_ERROR && logged_errors < kMaxLoggedErrors) {
+    logged_errors++;
+    lg::error("WebGL error 0x{:x} in {} (target 0x{:x} internal 0x{:x} format 0x{:x} type 0x{:x})",
+              err, what, target, internalformat, format, type);
+    // where it came from (function names: --profiling-funcs)
+    EM_ASM({ console.error("WebGL error stack: " + new Error().stack); });
+  }
+}
+
+// kLocateErrors: draws and clears into an incomplete framebuffer report the framebuffer (once each)
+PFNGLCLEARPROC real_clear;
+PFNGLDRAWELEMENTSPROC real_draw_elements;
+PFNGLDRAWARRAYSPROC real_draw_arrays;
+std::unordered_map<GLint, bool> reported_fbos;
+
+void check_framebuffer(const char* what, GLenum which = GL_DRAW_FRAMEBUFFER) {
+  GLint fbo = 0;
+  glGetIntegerv(which == GL_DRAW_FRAMEBUFFER ? GL_DRAW_FRAMEBUFFER_BINDING
+                                             : GL_READ_FRAMEBUFFER_BINDING,
+                &fbo);
+  GLenum status = glCheckFramebufferStatus(which);
+  if (status != GL_FRAMEBUFFER_COMPLETE && !reported_fbos[fbo]) {
+    reported_fbos[fbo] = true;
+    GLint type = 0, name = 0;
+    glGetFramebufferAttachmentParameteriv(which, GL_COLOR_ATTACHMENT0,
+                                          GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &type);
+    if (type != GL_NONE) {
+      glGetFramebufferAttachmentParameteriv(which, GL_COLOR_ATTACHMENT0,
+                                            GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &name);
+    }
+    lg::error("WebGL: {} with incomplete {} framebuffer {} (status 0x{:x}, color 0x{:x} #{})",
+              what, which == GL_DRAW_FRAMEBUFFER ? "draw" : "read", fbo, status, type, name);
+  }
+}
+
+PFNGLBLITFRAMEBUFFERPROC real_blit_framebuffer;
+PFNGLCLEARBUFFERFVPROC real_clear_bufferfv;
+PFNGLREADPIXELSPROC real_read_pixels;
+
+void APIENTRY blit_framebuffer(GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0,
+                               GLint dx1, GLint dy1, GLbitfield mask, GLenum filter) {
+  check_framebuffer("glBlitFramebuffer", GL_READ_FRAMEBUFFER);
+  check_framebuffer("glBlitFramebuffer");
+  real_blit_framebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter);
+  check_error("glBlitFramebuffer", 0, 0, mask, filter);
+}
+
+void APIENTRY clear_bufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+  check_framebuffer("glClearBufferfv");
+  real_clear_bufferfv(buffer, drawbuffer, value);
+}
+
+void APIENTRY read_pixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum f, GLenum t, void* d) {
+  check_framebuffer("glReadPixels", GL_READ_FRAMEBUFFER);
+  real_read_pixels(x, y, w, h, f, t, d);
+}
+
+void APIENTRY clear(GLbitfield mask) {
+  check_framebuffer("glClear");
+  real_clear(mask);
+}
+
+void APIENTRY draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+  check_framebuffer("glDrawElements");
+  check_error("a call before glDrawElements", 0, 0, 0, 0);
+  real_draw_elements(mode, count, type, indices);
+  check_error("glDrawElements", mode, count, type, 0);
+}
+
+void APIENTRY draw_arrays(GLenum mode, GLint first, GLsizei count) {
+  check_framebuffer("glDrawArrays");
+  check_error("a call before glDrawArrays", 0, 0, 0, 0);
+  real_draw_arrays(mode, first, count);
+  check_error("glDrawArrays", mode, first, count, 0);
+}
 
 GLuint bound_texture_2d() {
   GLint tex = 0;
@@ -69,8 +182,16 @@ void APIENTRY tex_image_2d(GLenum target,
                            GLenum format,
                            GLenum type,
                            const void* pixels) {
+  std::vector<u32> scratch;
+  if constexpr (kLocateErrors) {
+    check_error("a call before glTexImage2D", 0, 0, 0, 0);
+  }
   real_tex_image_2d(target, level, internalformat, width, height, border, format,
-                    map_type(format, type), pixels);
+                    map_type(format, type),
+                    map_pixels(format, type, pixels, size_t(width) * height, &scratch));
+  if constexpr (kLocateErrors) {
+    check_error("glTexImage2D", target, internalformat, format, type);
+  }
   if (target == GL_TEXTURE_2D && level == 0) {
     texture_sizes[bound_texture_2d()] = {width, height};
   }
@@ -85,8 +206,16 @@ void APIENTRY tex_sub_image_2d(GLenum target,
                                GLenum format,
                                GLenum type,
                                const void* pixels) {
+  std::vector<u32> scratch;
+  if constexpr (kLocateErrors) {
+    check_error("a call before glTexSubImage2D", 0, 0, 0, 0);
+  }
   real_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format,
-                        map_type(format, type), pixels);
+                        map_type(format, type),
+                        map_pixels(format, type, pixels, size_t(width) * height, &scratch));
+  if constexpr (kLocateErrors) {
+    check_error("glTexSubImage2D", target, 0, format, type);
+  }
 }
 
 void APIENTRY tex_image_1d(GLenum target,
@@ -153,6 +282,29 @@ void APIENTRY color_mask_i(GLuint index, GLboolean r, GLboolean g, GLboolean b, 
 }
 
 void APIENTRY framebuffer_texture(GLenum target, GLenum attachment, GLuint texture, GLint level) {
+  // WebGL makes a framebuffer unsupported when one image is on two color attachments, which
+  // FramebufferTexturePairContext does (level i at COLOR_ATTACHMENTi, then at COLOR_ATTACHMENT0).
+  // If the image is already on another color attachment, which is the draw buffer, keep that one.
+  if (texture != 0 && attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT7) {
+    for (GLenum other = GL_COLOR_ATTACHMENT0; other <= GL_COLOR_ATTACHMENT7; other++) {
+      if (other == attachment) {
+        continue;
+      }
+      GLint type = 0, name = 0, other_level = 0;
+      glGetFramebufferAttachmentParameteriv(target, other, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
+                                            &type);
+      if (type != GL_TEXTURE) {
+        continue;
+      }
+      glGetFramebufferAttachmentParameteriv(target, other, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
+                                            &name);
+      glGetFramebufferAttachmentParameteriv(target, other,
+                                            GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &other_level);
+      if (GLuint(name) == texture && other_level == level) {
+        return;
+      }
+    }
+  }
   glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, texture, level);
 }
 
@@ -202,6 +354,15 @@ void APIENTRY tex_image_2d_multisample(GLenum, GLsizei, GLenum, GLsizei, GLsizei
 }  // namespace
 
 /*!
+ * Log the WebGL errors of the frame (a limited number). Call after each frame.
+ */
+void log_errors() {
+  check_error("frame", 0, 0, 0, 0);
+  while (glGetError() != GL_NO_ERROR) {
+  }
+}
+
+/*!
  * Install the adapters over glad's function pointers. Call right after gladLoadGLLoader.
  */
 void install() {
@@ -212,6 +373,20 @@ void install() {
   real_tex_sub_image_2d = glad_glTexSubImage2D;
   real_enable = glad_glEnable;
   real_disable = glad_glDisable;
+  if constexpr (kLocateErrors) {
+    real_clear = glad_glClear;
+    real_draw_elements = glad_glDrawElements;
+    real_draw_arrays = glad_glDrawArrays;
+    real_blit_framebuffer = glad_glBlitFramebuffer;
+    real_clear_bufferfv = glad_glClearBufferfv;
+    real_read_pixels = glad_glReadPixels;
+    glad_glBlitFramebuffer = blit_framebuffer;
+    glad_glClearBufferfv = clear_bufferfv;
+    glad_glReadPixels = read_pixels;
+    glad_glClear = clear;
+    glad_glDrawElements = draw_elements;
+    glad_glDrawArrays = draw_arrays;
+  }
 
   glad_glBindTexture = bind_texture;
   glad_glTexParameteri = tex_parameteri;

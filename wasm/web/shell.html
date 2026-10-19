@@ -20,7 +20,10 @@
   const params = new URLSearchParams(location.search);
   const logEl = document.getElementById("log");
   const lines = [];
+  // WebGL messages are kept apart, the game's log scrolls them away (inspect window.webglLog)
+  window.webglLog = [];
   const show = (text) => {
+    if (/WebGL/.test(text) && window.webglLog.length < 200) window.webglLog.push(text);
     lines.push(text);
     if (lines.length > 400) lines.shift();
     logEl.textContent = lines.join("\n");
@@ -29,8 +32,9 @@
   var Module = {
     arguments: (params.get("args") || "-fakeiso -debug -nosound").split(" ").filter((a) => a),
     canvas: document.getElementById("canvas"),
-    print: (text) => { console.log(text); show(text); },
-    printErr: (text) => { console.warn(text); show(text); },
+    // the game's output stays on the page: the console keeps the browser's own messages (WebGL)
+    print: (text) => show(text),
+    printErr: (text) => show(text),
   };
 </script>
 {{{ SCRIPT }}}

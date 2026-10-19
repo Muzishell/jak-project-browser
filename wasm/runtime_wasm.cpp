@@ -49,7 +49,15 @@
 #include "game/overlord/jak1/stream.h"
 #include "game/runtime.h"
 #ifdef WASM_DISPLAY
+#include <emscripten.h>
+
+#include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
+
+namespace webgl_compat {
+// wasm/web/webgl_compat.cpp
+void log_errors();
+}  // namespace webgl_compat
 #endif
 #include "game/sce/deci2.h"
 #include "game/sce/iop.h"
@@ -195,32 +203,50 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
   ee::LIBRARY_INIT_sceDeci2();
   ee::LIBRARY_INIT_sceSif();
 
-  SystemThreadManager tm;
+  // static: with a display, this function unwinds into the browser's frame loop and the threads
+  // are joined from there
+  static SystemThreadManager tm;
   auto& iop_thread = tm.create_thread("IOP");
-  auto& ee_thread = tm.create_thread("EE");
+  static auto* ee_thread = &tm.create_thread("EE");
   auto& ee_worker_thread = tm.create_thread("EE-Worker");
 
   iop_thread.start([](SystemThreadInterface& sti) { iop_runner(sti); });
   ee_worker_thread.start(ee_worker_runner);
-  ee_thread.start(ee_runner);
+  ee_thread->start(ee_runner);
+
+  static auto shutdown = []() {
+    ee_thread->join();
+    tm.shutdown();
+    tm.join();
+    lg::info("GOAL Runtime Shutdown (code {})", fmt::underlying(MasterExit));
+    free(g_ee_main_mem);
+  };
 
 #ifdef WASM_DISPLAY
-  // the video loop runs here until the EE signals a shutdown
   if (enable_display) {
-    Gfx::Loop([]() { return MasterExit == RuntimeExitStatus::RUNNING; });
+    // the video loop, one frame per browser animation frame instead of runtime.cpp's blocking
+    // Gfx::Loop: a WebGL context on an OffscreenCanvas only presents when its thread returns to
+    // the event loop. When the EE asks to exit, shut down from there.
+    emscripten_set_main_loop(
+        []() {
+          if (MasterExit == RuntimeExitStatus::RUNNING) {
+            if (Display::GetMainDisplay()) {
+              Display::GetMainDisplay()->render();
+              webgl_compat::log_errors();
+            }
+            return;
+          }
+          emscripten_cancel_main_loop();
+          shutdown();
+          Gfx::Exit();
+          emscripten_force_exit(MasterExit == RuntimeExitStatus::EXIT ? 0 : int(MasterExit));
+        },
+        // a 60 Hz timer rather than requestAnimationFrame (fps 0), which a hidden or throttled
+        // page stops: the EE waits for each frame (vsync), so the game would stall with it
+        60, true);
   }
 #endif
 
-  ee_thread.join();
-  tm.shutdown();
-  tm.join();
-#ifdef WASM_DISPLAY
-  if (enable_display) {
-    Gfx::Exit();
-  }
-#endif
-
-  lg::info("GOAL Runtime Shutdown (code {})", fmt::underlying(MasterExit));
-  free(g_ee_main_mem);
+  shutdown();
   return MasterExit;
 }

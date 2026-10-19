@@ -416,6 +416,12 @@ void DecodeTime(u32 ptr) {
 }
 
 void vif_interrupt_callback(int bucket_id) {
+#ifdef __EMSCRIPTEN__
+  // GOAL functions only exist in the EE thread's wasm table, and this runs on the graphics thread.
+  // The only handler (jak1 vif1-handler-debug) draws debug profiler bars.
+  (void)bucket_id;
+  return;
+#endif
   // added for the PC port for faking VIF interrupts from the graphics system.
   if (vif1_interrupt_handler && MasterExit == RuntimeExitStatus::RUNNING) {
     call_goal(Ptr<Function>(vif1_interrupt_handler), bucket_id, 0, 0, s7.offset, g_ee_main_mem);

@@ -1,0 +1,16 @@
+;; Warp to Geyser Rock once the game has booted, like the debug menu's continue points.
+;; For the wasm runtimes: -boot -debug ... -wasm-test <this object> wasm-goto-training <frames>
+;; The boot loads village1 first; a process waits for it before warping, so the two loads don't race.
+
+(defun wasm-goto-training ()
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (until (let ((lev (level-get *level* 'village1))) (and lev (= (-> lev status) 'active)))
+        (suspend))
+      (suspend-for (seconds 1))
+      (format 0 "wasm-goto-training: warping to training-start~%")
+      (start 'play (get-continue-by-name *game-info* "training-start"))
+      (none)))
+  0)

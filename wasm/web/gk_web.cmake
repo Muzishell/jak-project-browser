@@ -127,7 +127,8 @@ target_link_options(gk_web PRIVATE
     # preloaded into the virtual filesystem. Never publish this build (CLAUDE.MD hard rules).
     # (SHELL: so CMake doesn't merge the repeated flag)
     "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/graphics/opengl_renderer/shaders@/jak-project/game/graphics/opengl_renderer/shaders"
-    "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/out/jak1-wasm/iso@/jak-project/out/jak1-wasm/iso"
+    # the game files wasm/web/stage_data.sh staged
+    "SHELL:--preload-file ${CMAKE_BINARY_DIR}/web-data/jak-project@/jak-project"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js"
     "SHELL:--shell-file ${CMAKE_CURRENT_LIST_DIR}/shell.html")

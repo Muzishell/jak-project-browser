@@ -28,7 +28,9 @@ int main(int argc, char** argv) {
   GameLaunchOptions game_options;
   game_options.game_version = GameVersion::Jak1;
 
-  std::vector<const char*> args = {"gk"};
+  // static: the runtime keeps argv (g_argv), and this function unwinds into the browser's frame
+  // loop (wasm/runtime_wasm.cpp) while the EE thread still reads it
+  static std::vector<const char*> args = {"gk"};
   for (int i = 1; i < argc; i++) {
     args.push_back(argv[i]);
   }
