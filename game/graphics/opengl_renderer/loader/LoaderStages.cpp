@@ -7,6 +7,26 @@
 constexpr float LOAD_BUDGET = 4.5f;
 
 /*!
+ * Upload part of an index buffer that was created as a GL_ELEMENT_ARRAY_BUFFER.
+ * Desktop GL: through GL_ARRAY_BUFFER, which leaves the bound VAO alone. WebGL never binds an
+ * element buffer to another target (that upload silently went nowhere), so there it goes through
+ * GL_ELEMENT_ARRAY_BUFFER with no VAO bound, and the bound VAO is restored.
+ */
+static void upload_indices(GLuint buffer, u32 first, u32 count, const u32* indices) {
+#ifdef __EMSCRIPTEN__
+  GLint vao = 0;
+  glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+  glBindVertexArray(0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
+  glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, first * sizeof(u32), count * sizeof(u32), indices);
+  glBindVertexArray(vao);
+#else
+  glBindBuffer(GL_ARRAY_BUFFER, buffer);
+  glBufferSubData(GL_ARRAY_BUFFER, first * sizeof(u32), count * sizeof(u32), indices);
+#endif
+}
+
+/*!
  * Upload a texture to the GPU, and give it to the pool.
  */
 u64 add_texture(TexturePool& pool, const tfrag3::Texture& tex, bool is_common) {
@@ -593,9 +613,8 @@ class HfragLoaderStage : public LoaderStage {
     if (!m_vtx_uploaded) {
       u32 start = m_idx;
       m_idx = std::min(start + 32768, (u32)data.lev_data->level->hfrag.indices.size());
-      glBindBuffer(GL_ARRAY_BUFFER, data.lev_data->hfrag_indices);
-      glBufferSubData(GL_ARRAY_BUFFER, start * sizeof(u32), (m_idx - start) * sizeof(u32),
-                      data.lev_data->level->hfrag.indices.data() + start);
+      upload_indices(data.lev_data->hfrag_indices, start, m_idx - start,
+                     data.lev_data->level->hfrag.indices.data() + start);
       if (m_idx != data.lev_data->level->hfrag.indices.size()) {
         return false;
       } else {
@@ -658,9 +677,8 @@ bool MercLoaderStage::run(Timer& /*timer*/, LoaderInput& data) {
   if (!m_vtx_uploaded) {
     u32 start = m_idx;
     m_idx = std::min(start + 32768, (u32)data.lev_data->level->merc_data.indices.size());
-    glBindBuffer(GL_ARRAY_BUFFER, data.lev_data->merc_indices);
-    glBufferSubData(GL_ARRAY_BUFFER, start * sizeof(u32), (m_idx - start) * sizeof(u32),
-                    data.lev_data->level->merc_data.indices.data() + start);
+    upload_indices(data.lev_data->merc_indices, start, m_idx - start,
+                   data.lev_data->level->merc_data.indices.data() + start);
     if (m_idx != data.lev_data->level->merc_data.indices.size()) {
       return false;
     } else {
