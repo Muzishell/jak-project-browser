@@ -8,6 +8,7 @@
 #include "game/graphics/gfx.h"
 #include "game/graphics/sceGraphicsInterface.h"
 #include "game/graphics/screenshot.h"
+#include "wasm/audio_output.h"
 
 // graphics/sceGraphicsInterface.cpp: no display, so there is no vblank to wait for
 u32 sceGsSyncPath(u32, u32) {
@@ -36,6 +37,12 @@ void CollisionRendererSetMask(GfxGlobalSettings::CollisionRendererMode, s64) {}
 void CollisionRendererClearMask(GfxGlobalSettings::CollisionRendererMode, s64) {}
 void CollisionRendererSetMode(GfxGlobalSettings::CollisionRendererMode) {}
 }  // namespace Gfx
+
+// wasm/audio_output.h. Headless: no audio output, the sound player doesn't tick (as before).
+namespace wasm_audio {
+void start(RenderFunc, void*) {}
+void stop() {}
+}  // namespace wasm_audio
 
 // graphics/display.cpp. Headless: there is no display, callers check for null.
 namespace Display {

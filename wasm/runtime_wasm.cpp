@@ -4,8 +4,8 @@
  * step for step, minus what the browser runtime doesn't have yet:
  *  - EE memory is a block of linear memory (no mmap at a fixed address, no low-memory guard)
  *  - no DMP/deci2 thread: the listener is not ported (CLAUDE.MD, decision 4)
- *  - no sound or discord; a display only in gk_web (WASM_DISPLAY), where the graphics loop runs
- *    on the main pthread like runtime.cpp's main thread
+ *  - no discord; a display and audio output only in gk_web (WASM_DISPLAY, wasm/web/audio_web.cpp),
+ *    where the graphics loop runs on the main pthread like runtime.cpp's main thread
  * Keep it in sync with runtime.cpp when the jak1 boot sequence there changes.
  */
 

@@ -3,9 +3,9 @@
 # - gk_headless (M3): no graphics, runs under Node with the real filesystem (NODERAWFS).
 #   wasm/stubs_headless.cpp stands in for the renderer.
 # - gk_web (M5): the OpenGL renderer on WebGL2, for the browser (wasm/web/).
-# Both: the C kernel, overlord, IOP, mips2c, the sound library without an audio backend and input
-# through Emscripten's SDL3 port; no listener or other games. wasm/stubs.cpp has the few entry
-# points of the left-out parts the kernel still calls.
+# Both: the C kernel, overlord, IOP, mips2c, the sound library (output through wasm/audio_output.h:
+# SDL3 audio in gk_web, none headless) and input through Emscripten's SDL3 port; no listener or
+# other games. wasm/stubs.cpp has the few entry points of the left-out parts the kernel still calls.
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

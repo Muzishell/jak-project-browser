@@ -15,6 +15,10 @@
 #endif
 #include "common/log/log.h"
 
+#ifdef __EMSCRIPTEN__
+#include "wasm/audio_output.h"
+#endif
+
 namespace snd {
 
 u8 g_global_excite = 0;
@@ -29,7 +33,10 @@ Player::~Player() {
 
 void Player::InitCubeb() {
 #ifdef __EMSCRIPTEN__
-  // no audio output in the wasm runtime yet (M6: AudioWorklet), the synth runs silently
+  // the browser's output (wasm/audio_output.h) calls Tick like the cubeb callback
+  wasm_audio::start([](void* user, s16* out,
+                       int frame_count) { ((Player*)user)->Tick((s16Output*)out, frame_count); },
+                    this);
   return;
 #endif
 #ifdef _WIN32
@@ -75,6 +82,7 @@ void Player::InitCubeb() {
 
 void Player::DestroyCubeb() {
 #ifdef __EMSCRIPTEN__
+  wasm_audio::stop();
   return;
 #endif
   cubeb_stream_stop(mStream);
