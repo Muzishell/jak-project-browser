@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node wasm/tools/gl-audit.mjs:*)",
+      "Bash(node wasm/tools/gles-shaders.mjs:*)",
+      "Bash(node wasm/tools/webgl-shader-smoke.mjs:*)",
+      "Bash(node wasm/tools/capture.mjs:*)",
+      "Bash(node wasm/tools/img-diff.mjs:*)",
+      "Bash(node wasm/tools/serve.mjs:*)",
+      "Bash(npm --prefix wasm/tools test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(task build-release:*)",
+      "Bash(task build-debug:*)",
+      "Bash(task format:*)",
+      "Bash(cmake --build build:*)",
+      "Bash(cmake --build build-wasm:*)"
+    ],
+    "deny": [
+      "Bash(gh pr create:*)",
+      "Bash(gh issue create:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wsl.exe --cd /home/muzi/code/jak-project -e /home/muzi/tools/emsdk/node/24.19.0_64bit/bin/node /home/muzi/code/jak-project/.claude/hooks/session-start.mjs"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wsl.exe --cd /home/muzi/code/jak-project -e /home/muzi/tools/emsdk/node/24.19.0_64bit/bin/node /home/muzi/code/jak-project/.claude/hooks/guard.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}

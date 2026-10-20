@@ -1,0 +1,3 @@
+{
+  "_doc": "Exact string replacements applied to a shader BEFORE translation, for things the automatic passes cannot fix. Format: file -> [[from, to, why]]. The translator fails loudly if `from` disappears. Each `to` must mean exactly what GLSL 4.10 did implicitly. Empty on the wasm branch: the four upstream entries (sprite_distort_instanced.vert mod(gl_VertexID, 5), hfrag.vert 32768.f * vx/vz, ocean_common.vert 255 - fog_in, direct2.vert 255 - byte_info.z) were fixed in the shared shaders themselves (commit 533612fe0), so their `from` text no longer exists. Prefer fixing a new shader at the source the same way (valid GLSL 4.10 and ES 3.00); add an entry here only as a stopgap."
+}

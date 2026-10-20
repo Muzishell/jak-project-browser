@@ -133,6 +133,21 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - Run `task format` before proposing a commit.
 - Note new decisions and gotchas at the bottom of this file under "Log", one line each.
 
+## Harness (wasm/, .claude/)
+
+- Skills (`.claude/skills/`): `webgl2-renderer-port`, `wasm-build-and-run`, `native-vs-wasm-diff`,
+  `session-handoff` (writes `wasm/HANDOFF.md`, which the SessionStart hook prints).
+- Hooks (`.claude/settings.json`) run WSL's emsdk node through `wsl.exe` (no node/git on Windows):
+  `session-start.mjs` prints branch, recent commits, uncommitted paths, milestones, HANDOFF.md;
+  `guard.mjs` (PreToolUse on Bash|PowerShell) blocks commits on master, commit messages without
+  `(AI-assisted)` or with `Co-Authored-By`, `git add -f` and `git add` of game-data paths,
+  `gh pr/issue create`, any `git push`, and curl/scp/rsync/... of game-data paths. It reads only
+  the command line: commits inside a script file are not seen.
+- Tools (`wasm/tools/`, dev only, deps via `npm ci` there, ask first): `gles-shaders.mjs` +
+  `webgl-shader-smoke.mjs` check that the shared shaders stay valid GLSL ES 3.00 and link in
+  Chromium; `capture.mjs` / `img-diff.mjs` for browser screenshots vs native; `gl-audit.mjs` does
+  not run on this branch. Notes in `wasm/docs/RENDERER.md` (the `*-baseline.md` files are stale).
+
 ## Log
 
 - 2026-10-17: Checkout dir must be named `jak-project` — `try_get_project_path_from_path` (common/util/FileUtil.cpp) does `rfind("jak-project")`, so `jak-project-browser/` makes goalc-test abort at startup.
@@ -216,3 +231,4 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-20: No merc model was drawn in the browser (Jak, Daxter, crates, windmill): MercLoaderStage uploaded its index buffer (created as GL_ELEMENT_ARRAY_BUFFER) by binding it to GL_ARRAY_BUFFER, which WebGL refuses, so the indices stayed zero and every draw was degenerate with no GL error at draw time (Chrome's console showed "element array buffers can not be bound to a different target"). LoaderStages.cpp `upload_indices` goes through GL_ELEMENT_ARRAY_BUFFER with no VAO bound under Emscripten (merc and hfrag).
 - 2026-10-20: Gamepad API: SDL3's Emscripten joystick driver reads a pad's vendor/product/XInput flag with EM_JS that runs in the pthread handling the connection, where `navigator.getGamepads` doesn't exist, so a connecting pad killed the render thread. web_pre.js mirrors the pads' ids from the page to the workers over a BroadcastChannel and gives workers a `navigator.getGamepads` returning the mirror; buttons/axes still go through the html5 API, which Emscripten proxies to the page. The SDL controller DB (game/assets/sdl_controller_db.txt) is preloaded.
 - 2026-10-20: Input check: keyboard control is on when no pad is connected (`_keyboard_temp_enabled`) and is polled with SDL_GetKeyboardState, so a scripted test must hold keys (dispatch keydown, wait, keyup on `window`); a scripted pad is a page-side `navigator.getGamepads` override plus a `gamepadconnected` event, with its `timestamp` bumped on each change.
+- 2026-10-20: Installed the Claude Code harness (skills, hooks, wasm/tools, wasm/docs), adapted to this branch: hooks run emsdk's node through `wsl.exe`, the shader translator/smoke test are checkers of the dual-valid shaders (`shader-patches.json` emptied), and the harness's `gl_target.h` / patch 0001 were not installed (`webgl_compat.cpp` + `__EMSCRIPTEN__` instead), so `gl-audit.mjs` doesn't run.
