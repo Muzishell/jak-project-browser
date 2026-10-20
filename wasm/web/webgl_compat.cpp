@@ -2,7 +2,8 @@
  * @file webgl_compat.cpp
  * The desktop GL calls the renderer makes that WebGL2 (OpenGL ES 3.0) doesn't have, as adapters
  * installed over glad's function pointers (CLAUDE.MD, decision 8). The renderer code is unchanged.
- *  - 1D textures are 2D textures of height 1 (the shaders read them with texelFetch(s, ivec2(i, 0)))
+ *  - 1D textures are 2D textures of height 1 (the shaders read them with texelFetch(s, ivec2(i,
+ * 0)))
  *  - GL_UNSIGNED_INT_8_8_8_8_REV with RGBA is the byte order of GL_UNSIGNED_BYTE on little endian;
  *    GL_UNSIGNED_INT_8_8_8_8 is the reverse (pixels byte-swapped on upload)
  *  - primitive restart is always on in WebGL2, with the index the renderer sets (0xFFFFFFFF)
@@ -15,7 +16,6 @@
  */
 
 #include <emscripten.h>
-
 #include <unordered_map>
 #include <vector>
 
@@ -77,7 +77,11 @@ constexpr bool kLocateErrors = false;
 int logged_errors = 0;
 constexpr int kMaxLoggedErrors = 40;
 
-void check_error(const char* what, GLenum target, GLint internalformat, GLenum format, GLenum type) {
+void check_error(const char* what,
+                 GLenum target,
+                 GLint internalformat,
+                 GLenum format,
+                 GLenum type) {
   GLenum err = glGetError();
   if (err != GL_NO_ERROR && logged_errors < kMaxLoggedErrors) {
     logged_errors++;
@@ -96,9 +100,9 @@ std::unordered_map<GLint, bool> reported_fbos;
 
 void check_framebuffer(const char* what, GLenum which = GL_DRAW_FRAMEBUFFER) {
   GLint fbo = 0;
-  glGetIntegerv(which == GL_DRAW_FRAMEBUFFER ? GL_DRAW_FRAMEBUFFER_BINDING
-                                             : GL_READ_FRAMEBUFFER_BINDING,
-                &fbo);
+  glGetIntegerv(
+      which == GL_DRAW_FRAMEBUFFER ? GL_DRAW_FRAMEBUFFER_BINDING : GL_READ_FRAMEBUFFER_BINDING,
+      &fbo);
   GLenum status = glCheckFramebufferStatus(which);
   if (status != GL_FRAMEBUFFER_COMPLETE && !reported_fbos[fbo]) {
     reported_fbos[fbo] = true;
@@ -109,8 +113,8 @@ void check_framebuffer(const char* what, GLenum which = GL_DRAW_FRAMEBUFFER) {
       glGetFramebufferAttachmentParameteriv(which, GL_COLOR_ATTACHMENT0,
                                             GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &name);
     }
-    lg::error("WebGL: {} with incomplete {} framebuffer {} (status 0x{:x}, color 0x{:x} #{})",
-              what, which == GL_DRAW_FRAMEBUFFER ? "draw" : "read", fbo, status, type, name);
+    lg::error("WebGL: {} with incomplete {} framebuffer {} (status 0x{:x}, color 0x{:x} #{})", what,
+              which == GL_DRAW_FRAMEBUFFER ? "draw" : "read", fbo, status, type, name);
   }
 }
 
@@ -118,8 +122,16 @@ PFNGLBLITFRAMEBUFFERPROC real_blit_framebuffer;
 PFNGLCLEARBUFFERFVPROC real_clear_bufferfv;
 PFNGLREADPIXELSPROC real_read_pixels;
 
-void APIENTRY blit_framebuffer(GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0,
-                               GLint dx1, GLint dy1, GLbitfield mask, GLenum filter) {
+void APIENTRY blit_framebuffer(GLint sx0,
+                               GLint sy0,
+                               GLint sx1,
+                               GLint sy1,
+                               GLint dx0,
+                               GLint dy0,
+                               GLint dx1,
+                               GLint dy1,
+                               GLbitfield mask,
+                               GLenum filter) {
   check_framebuffer("glBlitFramebuffer", GL_READ_FRAMEBUFFER);
   check_framebuffer("glBlitFramebuffer");
   real_blit_framebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter);
@@ -281,31 +293,30 @@ void APIENTRY color_mask_i(GLuint index, GLboolean r, GLboolean g, GLboolean b, 
   }
 }
 
+// The renderer only ever draws to one color attachment per framebuffer. FramebufferTexturePair
+// puts mip level i at COLOR_ATTACHMENTi with glDrawBuffers({COLOR_ATTACHMENTi}), which WebGL
+// refuses (entry k of glDrawBuffers must be NONE or COLOR_ATTACHMENTk; COLOR_ATTACHMENT8 and up
+// may not exist at all), so level i would be drawn nowhere. Each level has its own framebuffer,
+// so every color attachment and single draw buffer becomes COLOR_ATTACHMENT0.
+GLenum color_attachment_0(GLenum attachment) {
+  return attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT0 + 31
+             ? GL_COLOR_ATTACHMENT0
+             : attachment;
+}
+
 void APIENTRY framebuffer_texture(GLenum target, GLenum attachment, GLuint texture, GLint level) {
-  // WebGL makes a framebuffer unsupported when one image is on two color attachments, which
-  // FramebufferTexturePairContext does (level i at COLOR_ATTACHMENTi, then at COLOR_ATTACHMENT0).
-  // If the image is already on another color attachment, which is the draw buffer, keep that one.
-  if (texture != 0 && attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT7) {
-    for (GLenum other = GL_COLOR_ATTACHMENT0; other <= GL_COLOR_ATTACHMENT7; other++) {
-      if (other == attachment) {
-        continue;
-      }
-      GLint type = 0, name = 0, other_level = 0;
-      glGetFramebufferAttachmentParameteriv(target, other, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
-                                            &type);
-      if (type != GL_TEXTURE) {
-        continue;
-      }
-      glGetFramebufferAttachmentParameteriv(target, other, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
-                                            &name);
-      glGetFramebufferAttachmentParameteriv(target, other,
-                                            GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &other_level);
-      if (GLuint(name) == texture && other_level == level) {
-        return;
-      }
-    }
+  glFramebufferTexture2D(target, color_attachment_0(attachment), GL_TEXTURE_2D, texture, level);
+}
+
+PFNGLDRAWBUFFERSPROC real_draw_buffers;
+
+void APIENTRY draw_buffers(GLsizei n, const GLenum* bufs) {
+  if (n == 1) {
+    GLenum buf = color_attachment_0(bufs[0]);
+    real_draw_buffers(1, &buf);
+  } else {
+    real_draw_buffers(n, bufs);
   }
-  glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, texture, level);
 }
 
 void APIENTRY clear_depth(GLdouble depth) {
@@ -401,6 +412,8 @@ void install() {
   glad_glMultiDrawElements = multi_draw_elements;
   glad_glColorMaski = color_mask_i;
   glad_glFramebufferTexture = framebuffer_texture;
+  real_draw_buffers = glad_glDrawBuffers;
+  glad_glDrawBuffers = draw_buffers;
   glad_glClearDepth = clear_depth;
   glad_glPolygonMode = polygon_mode;
   glad_glDebugMessageCallback = debug_message_callback;
