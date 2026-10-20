@@ -18,16 +18,17 @@ Deploy steps 1-3 are done: bucket `jak-data` is private (no r2.dev URL, no custo
 holds the 343 files (manifest and sampled objects compared byte for byte); `jak-web` is deployed
 (version 5cf50e3a) with no address ("No targets deployed").
 
-M7 slice 3, OPFS cache (committed, not deployed): `wasm/web/data_sw.js` answers /data/ from OPFS
-(content-addressed by md5), `shell.html` registers it in preRun and fills the cache in the
-background (`?cache=0` turns it off), manifest lines are "path size md5". Verified by the owner in
-Firefox 158 against the local server (127.0.0.1:8090; Firefox's `localhost` tries IPv6, which
-WSL doesn't forward). The desktop app's browser pane can't register service workers; the page
-then falls back to the network.
+M7 slice 3, OPFS cache (fc2a590eb), deployed 2026-10-20 as jak-web version 10a31d1c with the
+"path size md5" manifest in R2 (sampled objects match its md5s): `wasm/web/data_sw.js` answers
+/data/ from OPFS (content-addressed by md5), `shell.html` registers it in preRun and fills the cache
+in the background (`?cache=0` turns it off). Verified by the owner in Firefox 158 against the local
+server (127.0.0.1:8090; Firefox's `localhost` tries IPv6, which WSL doesn't forward), and on the
+deployed site in the desktop app's pane (worker in control, cache filling, Sandover drawn). The
+pane can't register it from the local http server; the page then falls back to the network.
+After the deploy, 48 unauthenticated/forged requests on both hostnames all got the Access login.
 
 ## Uncommitted / in-flight
-Nothing. To ship slice 3: `build_site.sh` + `wrangler deploy` (runtime + data_sw.js) and
-`upload_data.sh --remote --only-manifest` (new manifest format), owner's go-ahead.
+Nothing.
 
 Deployed 2026-10-20 (version 6302ca3e): the page boots the game by default (570cdd32e; without
 ?args it used to run only the kernel test) and the draw-buffer fix (d2daa05aa). Also served at the
@@ -38,7 +39,7 @@ owner's custom domain jak.anomandoris.com, behind the same Access policy.
    unauthenticated/forged requests all get the Access login). Signed in, Chrome boots to Geyser
    Rock from R2 (~12 s from mount to the first level frame). Watch for Access session expiry
    mid-game.
-2. M7: deploy the OPFS cache (see above).
+2. M7: check a second visit on the deployed site loads with no /data/ downloads (cache complete).
 3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
    Worker (decision 11, `kmemcard.cpp`, `wasmfs_create_opfs_backend` at `/user`).
 
