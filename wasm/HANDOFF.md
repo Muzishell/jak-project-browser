@@ -11,16 +11,22 @@ M7 slice 1: game files are no longer preloaded. gk_web uses WasmFS with a fetch 
 `/jak-project/out` (`wasm/web/main_web.cpp`), reading `/data/manifest.txt` and fetching each file
 on first read; `stage_data.sh` + `serve.mjs` provide `/data/` locally. gk_web.data is 0.7 MB.
 
+M7 slice 2 (local only): `wasm/host/` holds the Worker `jak-web` (static runtime + `/data/*` from
+R2 `jak-data`, COOP/COEP, Access JWT check) and its scripts; tested with `wrangler dev` and a local
+R2 copy. The owner has enabled R2 and Zero Trust (with the email policy) and logged Wrangler in.
+Nothing is deployed or uploaded.
+
 ## Uncommitted / in-flight
-Nothing (harness committed in dcab9a44f, M7 slice 1 committed after it).
+Nothing.
 
 ## Next 3 steps
-1. M7: OPFS cache for the fetched files (decision 9): every page load refetches today. Either a
-   Worker-side cache (Cache API) or an OPFS backend layered in `main_web.cpp`.
-2. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS (decision 11, `kmemcard.cpp`,
-   `wasmfs_create_opfs_backend` mounted at the user dir `/user`).
-3. M7: Cloudflare Pages + Worker (`/data/*`, `/saves/*`) + private R2 behind Access (decision 10).
-   Uploads game data to R2 and deploys: ask the owner first.
+1. M7 deploy, owner's go-ahead per step: `wasm/host/README.md` "Deploy" (bucket, upload, deploy
+   without address, Access on the Worker, team domain + AUD in `wrangler.jsonc`, enable workers.dev,
+   check it's locked).
+2. M7: OPFS cache for the fetched files (decision 9): every page load refetches today (the Worker
+   lets the browser cache `/data/` for a day).
+3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
+   Worker (decision 11, `kmemcard.cpp`, `wasmfs_create_opfs_backend` at `/user`).
 
 ## Known broken / open questions
 - M4 is still unticked in CLAUDE.MD although ENGINE and GAME load and tick headless (Log

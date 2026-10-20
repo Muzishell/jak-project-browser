@@ -1,0 +1,27 @@
+// jak-web: see src/worker.js and README.md. Nothing here is secret; the allowed emails live only
+// in the Cloudflare Access policy (CLAUDE.MD decision 10).
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "jak-web",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  // gk_web.{html,js,wasm,data} copied by build_site.sh (runtime + shaders, no game data)
+  "assets": {
+    "directory": "../../build-wasm/host-site",
+    "binding": "ASSETS",
+    // serve gk_web.html as is (no /gk_web.html -> /gk_web redirect)
+    "html_handling": "none",
+    // the Worker checks Access and adds COOP/COEP on every request, static files included
+    "run_worker_first": true
+  },
+  "r2_buckets": [{ "binding": "DATA", "bucket_name": "jak-data" }],
+  // No public address until Access protects the Worker (README.md, deploy order).
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    // "<team>.cloudflareaccess.com", and the AUD tag of the Access application protecting this
+    // Worker. Empty = every request is refused.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  }
+}

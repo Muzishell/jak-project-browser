@@ -61,10 +61,11 @@ wasm build misbehaves, compare against native on the same input.
 9. **Files:** `game/overlord/common/fake_iso.cpp` (reads `out/jak1/iso`) and the `.fr3` loader
    (`game/graphics/opengl_renderer/loader/Loader.cpp`) go through Emscripten FS backed by fetch + OPFS,
    loaded lazily per level.
-10. **Hosting: private, everything served.** Cloudflare Pages serves the shell + runtime. The extracted
-    game files (iso files, `.fr3`, audio, per-object game `.wasm`) live in a private R2 bucket, streamed
-    by a same-origin Worker (`/data/*`) so COOP/COEP stays simple. Cloudflare Access protects the
-    whole domain with an allow-list of the owner's emails, kept in the Access policy (Zero Trust
+10. **Hosting: private, everything served.** One Cloudflare Worker (`jak-web`, `wasm/host/`) serves
+    the shell + runtime as static assets. The extracted
+    game files (iso files, `.fr3`, audio, per-object game `.wasm`) live in a private R2 bucket (`jak-data`),
+    streamed by the same Worker (`/data/*`) so COOP/COEP stays simple. Cloudflare Access protects the
+    Worker (all traffic) with an allow-list of the owner's emails, kept in the Access policy (Zero Trust
     dashboard or Terraform), never hard-coded in the app. OPFS caches downloaded files per machine.
     No client-side ISO extraction: any machine that can log in can play.
 11. **Saves: OPFS locally + cloud sync.** `kmemcard.cpp` writes bank files under
@@ -100,6 +101,8 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
       Cloudflare Access, save cloud sync and export/import.
       Slice 1 done: game files fetched lazily from `/data/` (WasmFS fetch backend), no preload.
+      Slice 2 (local): `wasm/host/` Worker `jak-web` + R2 `jak-data` tested with `wrangler dev`;
+      not deployed, nothing uploaded (deploy order in `wasm/host/README.md`).
 
 ### M3 plan
 
@@ -234,3 +237,4 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-20: Input check: keyboard control is on when no pad is connected (`_keyboard_temp_enabled`) and is polled with SDL_GetKeyboardState, so a scripted test must hold keys (dispatch keydown, wait, keyup on `window`); a scripted pad is a page-side `navigator.getGamepads` override plus a `gamepadconnected` event, with its `timestamp` bumped on each change.
 - 2026-10-20: Installed the Claude Code harness (skills, hooks, wasm/tools, wasm/docs), adapted to this branch: hooks run emsdk's node through `wsl.exe`, the shader translator/smoke test are checkers of the dual-valid shaders (`shader-patches.json` emptied), and the harness's `gl_target.h` / patch 0001 were not installed (`webgl_compat.cpp` + `__EMSCRIPTEN__` instead), so `gl-audit.mjs` doesn't run.
 - 2026-10-20: M7 slice 1 — gk_web links with `-sWASMFS` and no longer preloads game data (gk_web.data 370 MB → 0.7 MB: shaders + SDL controller DB). `main_web.cpp` mounts `wasmfs_create_fetch_backend("data", 2 MB)` at `/jak-project/out` and creates every file listed in `data/manifest.txt` (the fetch backend can't list directories; fake_iso iterates the iso dir). A file is fetched on first read: HEAD, then 2 MB Range chunks if it's over 4 MB, else whole; chunks stay in JS memory. WasmFS makes preloaded directories read-only (0555; mkdir under them fails with ENOENT), so `/jak-project` is chmod'ed first. `stage_data.sh` hard-links all of out/jak1-wasm/iso + out/jak1/fr3 into build-wasm/web-data/out and writes the manifest; `serve.mjs` serves it at /data/ with HEAD + Range. Geyser Rock reached as before. No OPFS cache yet (every page load refetches).
+- 2026-10-20: Decision 10 packaging changed with the owner's OK: one Worker with static assets (`jak-web`, `wasm/host/`) instead of Pages + Functions, because Access attaches to a Worker once for all its hostnames, while Pages' switch only covers previews (the production pages.dev needs a manual workaround, and previews are public by default). `run_worker_first`: the Worker adds COOP/COEP and verifies the Access JWT (`src/access.js`: RS256 against the team certs, aud, iss, exp) on every request, failing closed when `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` are empty. `/data/*` reads R2 `jak-data` with HEAD + Range. R2 holds English voices only (343 files, 730 MB). `wrangler.jsonc` has `workers_dev: false` until Access protects the Worker. Local dev: `DEV_SKIP_ACCESS=1` in git-ignored `.dev.vars`, local R2 in build-wasm/wrangler-state.
