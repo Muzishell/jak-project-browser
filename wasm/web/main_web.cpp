@@ -27,8 +27,9 @@ constexpr uint32_t kDataChunkSize = 2 << 20;
 /*!
  * Mount the game files (out/ of the repo) at /jak-project/out, backed by HTTP fetches of /data/
  * (decision 9, M7). Nothing is downloaded until a file is read, then only the ranges read.
- * data/manifest.txt lists the files, one path relative to out/ per line (wasm/web/stage_data.sh):
- * the fetch backend can't list a directory, so each file is created up front.
+ * data/manifest.txt lists the files, one per line: path relative to out/, size, md5
+ * (wasm/web/stage_data.sh). The fetch backend can't list a directory, so each file is created up
+ * front. On the page, a service worker answers /data/ from its OPFS cache (wasm/web/data_sw.js).
  */
 bool mount_game_data() {
   const std::string root = "/jak-project/out";
@@ -44,6 +45,7 @@ bool mount_game_data() {
   std::ifstream list(manifest);
   int count = 0;
   for (std::string line; std::getline(list, line);) {
+    line = line.substr(0, line.find(' '));
     if (line.empty()) {
       continue;
     }

@@ -4,6 +4,7 @@
 #   upload_data.sh --local    local R2 for `wrangler dev` (build-wasm/wrangler-state)
 #   upload_data.sh --remote   the real private bucket. Game data: only ever to jak-data, never to
 #                             anything public (CLAUDE.MD hard rules).
+#   add --only-manifest to upload just manifest.txt.
 # English voice lines only: the other VAGWAD.* (167 MB each) are left out. manifest.txt is
 # rewritten to list exactly what was uploaded, and goes up last.
 set -e
@@ -19,16 +20,18 @@ wrangler=(npx --yes wrangler@4.151.3)
 [ -f $src/manifest.txt ] || { echo "run wasm/web/stage_data.sh first"; exit 1; }
 
 list=build-wasm/host-manifest.txt
-grep -vE '^jak1-wasm/iso/VAGWAD\.(FRE|GER|ITA|JAP|SPA)$' $src/manifest.txt > $list
-echo "$(wc -l < $list) files, $(cd $src && du -chL $(cat ../../host-manifest.txt) | tail -1 | cut -f1)"
+grep -vE '^jak1-wasm/iso/VAGWAD\.(FRE|GER|ITA|JAP|SPA)( |$)' $src/manifest.txt > $list
+echo "$(wc -l < $list) files, $(cd $src && du -chL $(cut -d' ' -f1 ../../host-manifest.txt) | tail -1 | cut -f1)"
 
+# --only-manifest: just the manifest (files unchanged, e.g. after a manifest format change)
 n=0
-while read -r f; do
+[ "$2" = "--only-manifest" ] && list_upload=/dev/null || list_upload=$list
+while read -r f _; do
   n=$((n + 1))
   "${wrangler[@]}" r2 object put "$bucket/$f" --file "$src/$f" \
     --content-type application/octet-stream "${target[@]}" > /dev/null
   echo "[$n] $f"
-done < $list
+done < $list_upload
 "${wrangler[@]}" r2 object put "$bucket/manifest.txt" --file $list \
   --content-type text/plain "${target[@]}" > /dev/null
 echo "manifest.txt ($n files) uploaded"

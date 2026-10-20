@@ -9,11 +9,13 @@
   body { margin: 0; background: #000; color: #ccc; font: 12px monospace; }
   #canvas { display: block; width: 640px; height: 480px; background: #111; }
   #log { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 0; padding: 4px; }
+  #cache { padding: 2px 4px; color: #8a8; }
 </style>
 </head>
 <body>
 <!-- the runtime transfers this canvas to its main pthread (OffscreenCanvas) -->
 <canvas id="canvas" width="640" height="480" tabindex="-1"></canvas>
+<div id="cache"></div>
 <pre id="log"></pre>
 <script>
   // runtime arguments: ?args=-fakeiso+-debug+-nosound (kernel only). Default: boot the game in
@@ -43,7 +45,83 @@
     // the game's output stays on the page: the console keeps the browser's own messages (WebGL)
     print: (text) => show(text),
     printErr: (text) => show(text),
+    // the game starts once data_sw.js controls the page, so its threads' fetches go through it
+    preRun: [() => {
+      addRunDependency("data-cache");
+      startDataCache().finally(() => removeRunDependency("data-cache"));
+    }],
   };
+
+  // OPFS cache of the game files (M7): data_sw.js answers /data/ from it; this page fills it in
+  // the background, one file at a time, streamed to disk. ?cache=0 turns it off (unregisters).
+  const cacheEl = document.getElementById("cache");
+  async function startDataCache() {
+    if (!("serviceWorker" in navigator) || !navigator.storage?.getDirectory) {
+      cacheEl.textContent = "cache: not supported by this browser";
+      return;
+    }
+    if (params.get("cache") === "0") {
+      for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+      cacheEl.textContent = "cache: off";
+      return;
+    }
+    try {
+      await navigator.serviceWorker.register("data_sw.js");
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        // first visit: the worker claims the page when it activates (never wait for ever)
+        await Promise.race([
+          new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", r, { once: true })),
+          new Promise((r) => setTimeout(r, 5000)),
+        ]);
+      }
+      if (!navigator.serviceWorker.controller) throw new Error("service worker not in control");
+      // ask the browser not to evict the cache under storage pressure
+      navigator.storage.persist?.();
+      // after the first level has had the network to itself
+      setTimeout(() => fillDataCache().catch((e) => (cacheEl.textContent = `cache: ${e.message}`)), 20000);
+    } catch (e) {
+      cacheEl.textContent = `cache: ${e.message}`;
+    }
+  }
+
+  async function fillDataCache() {
+    const res = await fetch("data/manifest.txt", { cache: "no-store" });
+    if (!res.ok) throw new Error(`manifest: HTTP ${res.status}`);
+    const entries = (await res.text()).split("\n").map((l) => l.trim().split(" "))
+      .filter(([path, , md5]) => path && md5).map(([path, size, md5]) => ({ path, size: Number(size), md5 }));
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("data-cache", { create: true });
+    const have = new Map();
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind === "file") have.set(name, (await h.getFile()).size);
+    }
+    const total = entries.reduce((n, e) => n + e.size, 0);
+    let done = entries.filter((e) => have.get(e.md5) === e.size);
+    let bytes = done.reduce((n, e) => n + e.size, 0);
+    const status = () => (cacheEl.textContent =
+      `cache: ${done.length}/${entries.length} files, ${(bytes / 2 ** 20).toFixed(0)}/${(total / 2 ** 20).toFixed(0)} MB`);
+    status();
+    for (const e of entries) {
+      if (have.get(e.md5) === e.size) continue;
+      // no-store: the HTTP cache would keep a second copy
+      const r = await fetch(`data/${e.path}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`${e.path}: HTTP ${r.status}`);
+      const part = await dir.getFileHandle(`${e.md5}.part`, { create: true });
+      await r.body.pipeTo(await part.createWritable());
+      if ((await part.getFile()).size !== e.size) throw new Error(`${e.path}: wrong size`);
+      await part.move(e.md5);
+      have.set(e.md5, e.size);
+      done.push(e);
+      bytes += e.size;
+      status();
+    }
+    // versions no longer in the manifest, and interrupted downloads
+    const keep = new Set(entries.map((e) => e.md5).concat("manifest.txt"));
+    for (const name of have.keys()) {
+      if (!keep.has(name)) await dir.removeEntry(name);
+    }
+    cacheEl.textContent += " (complete)";
+  }
 </script>
 {{{ SCRIPT }}}
 </body>
