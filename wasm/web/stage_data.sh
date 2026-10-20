@@ -1,37 +1,24 @@
 #!/bin/bash
-# Stage the game files gk_web preloads for local development (CLAUDE.MD, M5): the wasm iso files of
-# the first playable levels and their .fr3 files, under build-wasm/web-data/jak-project/.
+# Stage the game files gk_web fetches from /data/ for local development (CLAUDE.MD, M7 slice 1):
+# the wasm iso files, the .fr3 files and the -wasm-test objects, hard-linked from out/ into
+# build-wasm/web-data/out/, plus the manifest.txt main_web.cpp mounts them from. Nothing is
+# downloaded until the game reads a file, so every level is staged.
 # The staged files are game data: local only, never committed or published (CLAUDE.MD hard rules).
-# Usage (from the repo root): wasm/web/stage_data.sh [level DGO names, default: VI1 TRA BEA]
-# Also stages the sound banks, music, animation streams (.STR, ~100 MB) and English voice lines
-# (VAGWAD.ENG, ~170 MB; the IOP dies on a missing VAGWAD) until files load lazily (M7).
+# Usage (from the repo root): wasm/web/stage_data.sh, then node wasm/web/serve.mjs
 set -e
 cd "$(dirname "$0")/../.."
-levels=${*:-VI1 TRA BEA}
-iso_in=out/jak1-wasm/iso
-fr3_in=out/jak1/fr3
-dst=build-wasm/web-data/jak-project
+dst=build-wasm/web-data/out
 rm -rf build-wasm/web-data
-mkdir -p $dst/out/jak1-wasm/iso $dst/out/jak1/fr3
+mkdir -p $dst/jak1-wasm/iso $dst/jak1/fr3 $dst/jak1-wasm/obj
 
-# boot files: the CGOs, text, and the small overlord tables
-for f in $iso_in/*.CGO $iso_in/*.TXT $iso_in/*.AYB; do
-  [ -e "$f" ] && cp "$f" $dst/out/jak1-wasm/iso/
-done
-# sound: banks, music, animation streams, voice lines
-cp $iso_in/*.SBK $iso_in/*.MUS $iso_in/*.STR $iso_in/VAGWAD.ENG $dst/out/jak1-wasm/iso/
-# levels
-declare -A fr3_name=([VI1]=village1 [TRA]=training [BEA]=beach [VI2]=village2 [INT]=intro
-                     [TIT]=title [JUN]=jungle [MIS]=misty [FIC]=firecanyon)
-cp $fr3_in/GAME.fr3 $dst/out/jak1/fr3/
-for l in $levels; do
-  cp $iso_in/$l.DGO $dst/out/jak1-wasm/iso/
-  [ -e $iso_in/$l.VIS ] && cp $iso_in/$l.VIS $dst/out/jak1-wasm/iso/
-  cp $fr3_in/${fr3_name[$l]}.fr3 $dst/out/jak1/fr3/
-done
+# hard links: same bytes as out/, no copy (falls back to a copy across filesystems)
+link() { cp -l "$@" 2>/dev/null || cp "$@"; }
+link out/jak1-wasm/iso/* $dst/jak1-wasm/iso/
+link out/jak1/fr3/*.fr3 $dst/jak1/fr3/
 # test objects for -wasm-test (e.g. goto-training.o from test/goalc/source_templates/kernel)
-mkdir -p $dst/out/jak1-wasm/obj
 for f in goto-training load-engine; do
-  [ -e out/jak1-wasm/obj/$f.o ] && cp out/jak1-wasm/obj/$f.o $dst/out/jak1-wasm/obj/
+  [ -e out/jak1-wasm/obj/$f.o ] && link out/jak1-wasm/obj/$f.o $dst/jak1-wasm/obj/
 done
-du -sh build-wasm/web-data
+
+(cd $dst && find . -type f ! -name manifest.txt | sed 's|^\./||' | sort > manifest.txt)
+echo "$(wc -l < $dst/manifest.txt) files, $(du -shL $dst | cut -f1) under $dst"

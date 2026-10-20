@@ -1,6 +1,6 @@
 # gk_web: the jak1 runtime with the OpenGL renderer on WebGL2 (CLAUDE.MD, M5). Included by
 # wasm/CMakeLists.txt. Open build-wasm/wasm/gk_web.html through wasm/web/serve.mjs (it sends the
-# COOP/COEP headers pthreads need).
+# COOP/COEP headers pthreads need, and serves the files wasm/web/stage_data.sh staged at /data/).
 
 set(GRAPHICS ${GAME}/graphics)
 set(OPENGL ${GRAPHICS}/opengl_renderer)
@@ -124,14 +124,13 @@ target_link_options(gk_web PRIVATE
     -sFULL_ES3=1
     -sGL_ENABLE_GET_PROC_ADDRESS=1
     -sOFFSCREENCANVAS_SUPPORT=1
-    # local development only: the repo files the runtime reads (shaders, the wasm iso) are
-    # preloaded into the virtual filesystem. Never publish this build (CLAUDE.MD hard rules).
+    # WasmFS: the game files are fetched lazily from /data/ (main_web.cpp), from any thread
+    -sWASMFS=1
+    # repo files (no game data) preloaded into the virtual filesystem
     # (SHELL: so CMake doesn't merge the repeated flag)
     "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/graphics/opengl_renderer/shaders@/jak-project/game/graphics/opengl_renderer/shaders"
     # gamepad mappings the input manager loads (Gamepad API pads mostly use the standard mapping)
     "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/assets/sdl_controller_db.txt@/jak-project/game/assets/sdl_controller_db.txt"
-    # the game files wasm/web/stage_data.sh staged
-    "SHELL:--preload-file ${CMAKE_BINARY_DIR}/web-data/jak-project@/jak-project"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js"
     "SHELL:--shell-file ${CMAKE_CURRENT_LIST_DIR}/shell.html")

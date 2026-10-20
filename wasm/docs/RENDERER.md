@@ -121,8 +121,8 @@ inputs with the signedness of the data the C++ side feeds them.
 
 ## Debugging in the browser
 
-- Local only: `node wasm/web/serve.mjs` then http://localhost:8090/gk_web.html?args=… (the build
-  contains preloaded game data; never publish it).
+- Local only: `node wasm/web/serve.mjs` then http://localhost:8090/gk_web.html?args=… (it serves
+  the staged game data at `/data/`; never publish that).
 - Game log: `window.gkLog` on the page; WebGL messages: `window.webglLog`; the browser's own WebGL
   warnings are in the DevTools console. Traps in pthreads print the worker-side stack
   (`wasm/web/web_pre.js`).

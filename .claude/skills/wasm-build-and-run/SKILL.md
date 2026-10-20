@@ -40,14 +40,15 @@ Writes `out/jak1-wasm/` (never over native `out/jak1/`). The `.fr3` files come f
 
 ```bash
 emcmake cmake -S . -B build-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release
-bash wasm/web/stage_data.sh                # -> build-wasm/web-data (VI1 TRA BEA + boot + sound, ~370 MB)
+bash wasm/web/stage_data.sh                # -> build-wasm/web-data/out (hard links to out/ + manifest.txt)
 cmake --build build-wasm --target gk_web   # and/or gk_headless
 ```
 
 - Output: `build-wasm/wasm/gk_web.{html,js,wasm,data}`, `build-wasm/wasm/gk_headless.{js,wasm}`.
-- `gk_web.data` is packed at link time from the shaders, the SDL controller DB and
-  `build-wasm/web-data`. Shader/shell/pre-js changes relink by themselves (LINK_DEPENDS); **restaged
-  data does not**, so force a relink after `stage_data.sh` (e.g. remove `build-wasm/wasm/gk_web.html`).
+- `gk_web.data` (~0.7 MB) holds only the shaders and the SDL controller DB; shader/shell/pre-js
+  changes relink by themselves (LINK_DEPENDS). Game files are not in the build: gk_web uses WasmFS
+  and mounts a fetch backend at `/jak-project/out` from `/data/manifest.txt` (`main_web.cpp`), so
+  each file is fetched from `/data/` on first read, in 2 MB ranges. Restaging needs no relink.
 - A third-party lib that won't configure: guard it out in `wasm/CMakeLists.txt` and say what it
   removes. x86 intrinsics: Emscripten's SSE emulation (`-msse4.2`) covers mips2c/VU code.
 
