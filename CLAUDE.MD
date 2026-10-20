@@ -101,9 +101,9 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
       Cloudflare Access, save cloud sync and export/import.
       Slice 1 done: game files fetched lazily from `/data/` (WasmFS fetch backend), no preload.
-      Slice 2: `wasm/host/` Worker `jak-web` + R2 `jak-data` tested with `wrangler dev`. Deploy
-      steps 1-3 done 2026-10-20 (private bucket, 343 files uploaded, Worker deployed with no
-      address); next is step 4, Access on the Worker (`wasm/host/README.md`).
+      Slice 2: `wasm/host/` Worker `jak-web` + R2 `jak-data`, deployed 2026-10-20 at
+      https://jak-web.adrienmuzika.workers.dev behind Access (all traffic); unauthenticated and
+      forged-token requests get the Access login on every path, version previews don't exist.
 
 ### M3 plan
 

@@ -22,8 +22,9 @@ holds the 343 files (manifest and sampled objects compared byte for byte); `jak-
 Nothing.
 
 ## Next 3 steps
-1. M7 deploy steps 4-6, owner's go-ahead per step (`wasm/host/README.md`): Access on the Worker
-   (dashboard, owner), team domain + AUD in `wrangler.jsonc`, enable workers.dev, check it's locked.
+1. M7: deployed at https://jak-web.adrienmuzika.workers.dev behind Access (steps 4-6 done:
+   unauthenticated/forged requests all get the Access login). Confirm a signed-in boot to Geyser
+   Rock; watch for Access session expiry mid-game.
 2. M7: OPFS cache for the fetched files (decision 9): every page load refetches today (the Worker
    lets the browser cache `/data/` for a day).
 3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
