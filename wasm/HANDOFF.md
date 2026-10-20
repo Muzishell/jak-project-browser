@@ -23,8 +23,9 @@ Nothing.
 
 ## Next 3 steps
 1. M7: deployed at https://jak-web.adrienmuzika.workers.dev behind Access (steps 4-6 done:
-   unauthenticated/forged requests all get the Access login). Confirm a signed-in boot to Geyser
-   Rock; watch for Access session expiry mid-game.
+   unauthenticated/forged requests all get the Access login). Signed in, Chrome boots to Geyser
+   Rock from R2 (~12 s from mount to the first level frame). Watch for Access session expiry
+   mid-game.
 2. M7: OPFS cache for the fetched files (decision 9): every page load refetches today (the Worker
    lets the browser cache `/data/` for a day).
 3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
