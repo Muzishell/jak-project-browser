@@ -43,6 +43,10 @@ class IOP {
   std::mutex iop_mutex, run_cv_mutex;
   bool overlord_init_done = false;
   std::condition_variable iop_run_cv;
+#ifdef __EMSCRIPTEN__
+  // signal_run_iop while wait_run_iop spins (see wait_run_iop)
+  std::atomic_bool run_signaled = false;
+#endif
 };
 
 #endif  // JAK1_IOP_THREAD_H

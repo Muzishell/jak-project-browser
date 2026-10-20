@@ -709,7 +709,13 @@ void GLDisplay::render() {
 
   // actual vsync
   g_gfx_data->debug_gui.finish_frame();
+#ifdef __EMSCRIPTEN__
+  // the browser frame loop paces frames (wasm/runtime_wasm.cpp): a sleep here would round up to
+  // the OS timer tick
+  if (false) {
+#else
   if (Gfx::g_global_settings.framelimiter) {
+#endif
     auto p = scoped_prof("frame-limiter");
     g_gfx_data->frame_limiter.run(
         Gfx::g_global_settings.target_fps, Gfx::g_global_settings.experimental_accurate_lag,

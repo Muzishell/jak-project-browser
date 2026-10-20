@@ -9,18 +9,44 @@
 
 #include <pthread.h>
 
-#include <semaphore>
+#include <condition_variable>
+#include <mutex>
 
 #include "libco.h"
 
 #include "common/util/Assert.h"
 
 namespace {
+// Not std::binary_semaphore: Emscripten's libc++ has no futex for atomic waits and acquire polls
+// with sleeps, which a browser worker rounds up to the OS timer tick (~15.6 ms on Windows) per IOP
+// thread switch. A condition variable waits on a futex that release wakes at once.
+class Baton {
+ public:
+  void release() {
+    {
+      std::lock_guard lock(m_mutex);
+      m_ready = true;
+    }
+    m_cv.notify_one();
+  }
+
+  void acquire() {
+    std::unique_lock lock(m_mutex);
+    m_cv.wait(lock, [this] { return m_ready; });
+    m_ready = false;
+  }
+
+ private:
+  std::mutex m_mutex;
+  std::condition_variable m_cv;
+  bool m_ready = false;
+};
+
 struct Coroutine {
   void (*entry)() = nullptr;
   unsigned stack_size = 0;
   bool started = false;
-  std::binary_semaphore baton{0};  // released when this coroutine may run
+  Baton baton;  // released when this coroutine may run
 };
 
 thread_local Coroutine* t_current = nullptr;

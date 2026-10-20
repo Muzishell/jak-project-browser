@@ -60,8 +60,23 @@ void* IOP::iop_alloc(int size) {
 void IOP::wait_run_iop(
     std::chrono::time_point<std::chrono::steady_clock, std::chrono::microseconds> wakeup) {
   auto p = scoped_prof("krnlw");
+#ifdef __EMSCRIPTEN__
+  // A timed wait in a browser worker that times out sleeps at least the OS timer tick (~15.6 ms
+  // on Windows), whatever the timeout, and IOP waits are mostly 100 us polls (DelayThread). Wait
+  // until shortly before the wakeup, then spin; signal_run_iop ends either part early.
+  constexpr auto kSpinTime = std::chrono::milliseconds(20);
+  if (wakeup - std::chrono::steady_clock::now() > kSpinTime) {
+    std::unique_lock<std::mutex> lk(run_cv_mutex);
+    if (iop_run_cv.wait_until(lk, wakeup - kSpinTime) == std::cv_status::no_timeout) {
+      return;
+    }
+  }
+  while (std::chrono::steady_clock::now() < wakeup && !run_signaled.exchange(false)) {
+  }
+#else
   std::unique_lock<std::mutex> lk(run_cv_mutex);
   iop_run_cv.wait_until(lk, wakeup);
+#endif
 }
 
 void IOP::kill_from_ee() {
@@ -70,6 +85,9 @@ void IOP::kill_from_ee() {
 }
 
 void IOP::signal_run_iop() {
+#ifdef __EMSCRIPTEN__
+  run_signaled = true;
+#endif
   std::unique_lock<std::mutex> lk(run_cv_mutex);
   iop_run_cv.notify_all();
 }

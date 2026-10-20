@@ -182,6 +182,19 @@ void iop_runner(SystemThreadInterface& iface) {
   Gfx::clear_vsync_callback();
 #endif
 }
+
+#ifdef WASM_DISPLAY
+// The browser frame loop's ticks come from setImmediate timing (scheduler.postTask). SDL sets its
+// own timing (rAF for vsync, which never fires in a worker without a visible canvas) when the
+// renderer changes the swap interval, so this is checked around every frame.
+void use_immediate_timing() {
+  int mode, value;
+  emscripten_get_main_loop_timing(&mode, &value);
+  if (mode != EM_TIMING_SETIMMEDIATE) {
+    emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
+  }
+}
+#endif
 }  // namespace
 
 RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const char** argv) {
@@ -224,16 +237,32 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
 
 #ifdef WASM_DISPLAY
   if (enable_display) {
-    // the video loop, one frame per browser animation frame instead of runtime.cpp's blocking
-    // Gfx::Loop: a WebGL context on an OffscreenCanvas only presents when its thread returns to
-    // the event loop. When the EE asks to exit, shut down from there.
+    // the video loop, one frame per main loop tick instead of runtime.cpp's blocking Gfx::Loop:
+    // a WebGL context on an OffscreenCanvas only presents when its thread returns to the event
+    // loop. When the EE asks to exit, shut down from there.
     emscripten_set_main_loop(
         []() {
           if (MasterExit == RuntimeExitStatus::RUNNING) {
+            // Paced here, not by timers: in a worker a browser rounds setTimeout up to the OS
+            // timer tick (15.6 ms on Windows: a 60 Hz timeout ran at 32 Hz) and rAF needs a
+            // visible page (the EE waits for each frame, so the game would stall). Ticks come
+            // from scheduler.postTask (setImmediate timing) and render when the next 60 Hz frame
+            // is due; this replaces the renderer's frame limiter, which sleeps.
+            constexpr double kFrameMs = 1000.0 / 60.0;
+            static double next_frame = 0;
+            use_immediate_timing();
+            double now = emscripten_get_now();
+            if (now < next_frame) {
+              return;
+            }
+            // keep the cadence, unless a frame was late by more than a frame
+            next_frame = now - next_frame > kFrameMs ? now + kFrameMs : next_frame + kFrameMs;
             if (Display::GetMainDisplay()) {
               Display::GetMainDisplay()->render();
               webgl_compat::log_errors();
             }
+            // the renderer may have changed the swap interval
+            use_immediate_timing();
             return;
           }
           emscripten_cancel_main_loop();
@@ -241,8 +270,7 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
           Gfx::Exit();
           emscripten_force_exit(MasterExit == RuntimeExitStatus::EXIT ? 0 : int(MasterExit));
         },
-        // a 60 Hz timer rather than requestAnimationFrame (fps 0), which a hidden or throttled
-        // page stops: the EE waits for each frame (vsync), so the game would stall with it
+        // until the first tick switches to setImmediate timing
         60, true);
   }
 #endif

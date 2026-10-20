@@ -19,15 +19,22 @@
   // runtime arguments: ?args=-fakeiso+-debug (default: boot the kernel with the debug flags)
   const params = new URLSearchParams(location.search);
   const logEl = document.getElementById("log");
-  const lines = [];
+  // the whole log (window.gkLog); the page shows its end
+  const lines = (window.gkLog = []);
   // WebGL messages are kept apart, the game's log scrolls them away (inspect window.webglLog)
   window.webglLog = [];
+  // A pthread's print waits until this thread has handled it (Emscripten proxies stdout writes
+  // synchronously), so printing must be cheap: the page is redrawn at most every 100 ms.
+  let redraw = null;
   const show = (text) => {
     if (/WebGL/.test(text) && window.webglLog.length < 200) window.webglLog.push(text);
     lines.push(text);
-    if (lines.length > 400) lines.shift();
-    logEl.textContent = lines.join("\n");
-    logEl.scrollTop = logEl.scrollHeight;
+    if (lines.length > 100000) lines.splice(0, 50000);
+    redraw ??= setTimeout(() => {
+      redraw = null;
+      logEl.textContent = lines.slice(-400).join("\n");
+      logEl.scrollTop = logEl.scrollHeight;
+    }, 100);
   };
   var Module = {
     arguments: (params.get("args") || "-fakeiso -debug -nosound").split(" ").filter((a) => a),
