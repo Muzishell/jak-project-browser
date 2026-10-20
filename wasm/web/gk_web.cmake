@@ -109,6 +109,7 @@ add_executable(gk_web
     ${TP}/glad/src/glad.c
     ${TP}/stb_image/stb_image.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../runtime_wasm.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/audio_web.cpp
     ${CMAKE_CURRENT_LIST_DIR}/main_web.cpp
     ${CMAKE_CURRENT_LIST_DIR}/stubs_web.cpp
     ${CMAKE_CURRENT_LIST_DIR}/webgl_compat.cpp)
@@ -127,6 +128,8 @@ target_link_options(gk_web PRIVATE
     # preloaded into the virtual filesystem. Never publish this build (CLAUDE.MD hard rules).
     # (SHELL: so CMake doesn't merge the repeated flag)
     "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/graphics/opengl_renderer/shaders@/jak-project/game/graphics/opengl_renderer/shaders"
+    # gamepad mappings the input manager loads (Gamepad API pads mostly use the standard mapping)
+    "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/assets/sdl_controller_db.txt@/jak-project/game/assets/sdl_controller_db.txt"
     # the game files wasm/web/stage_data.sh staged
     "SHELL:--preload-file ${CMAKE_BINARY_DIR}/web-data/jak-project@/jak-project"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js"
