@@ -14,15 +14,16 @@ on first read; `stage_data.sh` + `serve.mjs` provide `/data/` locally. gk_web.da
 M7 slice 2 (local only): `wasm/host/` holds the Worker `jak-web` (static runtime + `/data/*` from
 R2 `jak-data`, COOP/COEP, Access JWT check) and its scripts; tested with `wrangler dev` and a local
 R2 copy. The owner has enabled R2 and Zero Trust (with the email policy) and logged Wrangler in.
-Nothing is deployed or uploaded.
+Deploy steps 1-3 are done: bucket `jak-data` is private (no r2.dev URL, no custom domain) and
+holds the 343 files (manifest and sampled objects compared byte for byte); `jak-web` is deployed
+(version 5cf50e3a) with no address ("No targets deployed").
 
 ## Uncommitted / in-flight
 Nothing.
 
 ## Next 3 steps
-1. M7 deploy, owner's go-ahead per step: `wasm/host/README.md` "Deploy" (bucket, upload, deploy
-   without address, Access on the Worker, team domain + AUD in `wrangler.jsonc`, enable workers.dev,
-   check it's locked).
+1. M7 deploy steps 4-6, owner's go-ahead per step (`wasm/host/README.md`): Access on the Worker
+   (dashboard, owner), team domain + AUD in `wrangler.jsonc`, enable workers.dev, check it's locked.
 2. M7: OPFS cache for the fetched files (decision 9): every page load refetches today (the Worker
    lets the browser cache `/data/` for a day).
 3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
