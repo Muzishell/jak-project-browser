@@ -19,7 +19,17 @@ holds the 343 files (manifest and sampled objects compared byte for byte); `jak-
 (version 5cf50e3a) with no address ("No targets deployed").
 
 ## Uncommitted / in-flight
-Nothing.
+M7 slice 3, OPFS cache, written but untested (the desktop app's browser pane refuses to register
+service workers): `wasm/web/data_sw.js` (answers /data/ from OPFS, content-addressed by md5),
+`shell.html` (registers it in preRun, fills the cache in the background, `?cache=0` turns it off),
+manifest lines "path size md5" (`stage_data.sh`, `upload_data.sh --only-manifest`, `main_web.cpp`
+reads the first field), `gk_web.cmake` copies data_sw.js next to gk_web.html, `build_site.sh`
+ships it. Test in a real Chrome/Firefox (first visit fills, second reads OPFS), then commit, deploy
+the runtime and upload the new manifest (owner's go-ahead).
+
+Deployed 2026-10-20 (version 6302ca3e): the page boots the game by default (570cdd32e; without
+?args it used to run only the kernel test) and the draw-buffer fix (d2daa05aa). Also served at the
+owner's custom domain jak.anomandoris.com, behind the same Access policy.
 
 ## Next 3 steps
 1. M7: deployed at https://jak-web.adrienmuzika.workers.dev behind Access (steps 4-6 done:
