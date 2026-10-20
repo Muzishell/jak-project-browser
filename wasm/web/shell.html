@@ -16,7 +16,8 @@
 <canvas id="canvas" width="640" height="480" tabindex="-1"></canvas>
 <pre id="log"></pre>
 <script>
-  // runtime arguments: ?args=-fakeiso+-debug (default: boot the kernel with the debug flags)
+  // runtime arguments: ?args=-fakeiso+-debug+-nosound (kernel only). Default: boot the game in
+  // debug mode (Sandover), with sound.
   const params = new URLSearchParams(location.search);
   const logEl = document.getElementById("log");
   // the whole log (window.gkLog); the page shows its end
@@ -37,7 +38,7 @@
     }, 100);
   };
   var Module = {
-    arguments: (params.get("args") || "-fakeiso -debug -nosound").split(" ").filter((a) => a),
+    arguments: (params.get("args") || "-boot -fakeiso -debug").split(" ").filter((a) => a),
     canvas: document.getElementById("canvas"),
     // the game's output stays on the page: the console keeps the browser's own messages (WebGL)
     print: (text) => show(text),
