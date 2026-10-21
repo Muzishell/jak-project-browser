@@ -3,6 +3,7 @@
 // (with HEAD and Range requests, which the WasmFS fetch backend uses). Local only: /data/ is game
 // data and must never be published (CLAUDE.MD hard rules).
 //   node wasm/web/serve.mjs [port]   then open http://localhost:8090/gk_web.html
+// GK_DATA_DELAY_MS=300 delays every /data/ answer, like a round trip to the hosted bucket.
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,6 +13,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const root = path.join(repo, "build-wasm/wasm");
 const dataRoot = path.join(repo, "build-wasm/web-data/out");
 const port = Number(process.argv[2] || 8090);
+const dataDelay = Number(process.env.GK_DATA_DELAY_MS || 0);
 const types = {
   ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm",
   ".data": "application/octet-stream", ".txt": "text/plain",
@@ -25,6 +27,15 @@ function resolve(urlPath) {
 }
 
 http.createServer((req, res) => {
+  if (dataDelay && req.url.startsWith("/data/")) {
+    setTimeout(() => serve(req, res), dataDelay);
+  } else {
+    serve(req, res);
+  }
+}).listen(port, "127.0.0.1", () => console.log(`gk_web on http://localhost:${port}/gk_web.html` +
+  (dataDelay ? ` (/data/ delayed ${dataDelay} ms)` : "")));
+
+function serve(req, res) {
   const file = resolve(new URL(req.url, "http://x").pathname);
   const st = file && fs.existsSync(file) ? fs.statSync(file) : null;
   if (!st || st.isDirectory()) {
@@ -59,4 +70,4 @@ http.createServer((req, res) => {
     return;
   }
   fs.createReadStream(file, { start, end }).pipe(res);
-}).listen(port, "127.0.0.1", () => console.log(`gk_web on http://localhost:${port}/gk_web.html`));
+}
