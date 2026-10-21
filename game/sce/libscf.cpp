@@ -8,7 +8,7 @@
 // clang-format off
 #include <Windows.h>
 #include <WinNls.h>
-#elif __linux__
+#elif defined(__linux__) || defined(__EMSCRIPTEN__)
 #include <clocale>
 // clang-format on
 #endif
@@ -49,7 +49,8 @@ int sceScfGetLanguage() {
   } else if (curLangMain == LANG_KOREAN) {
     return SCE_KOREAN_LANGUAGE;
   }
-#elif __linux__
+#elif defined(__linux__) || defined(__EMSCRIPTEN__)
+  // in the browser build, Emscripten sets LANG from the browser's language (navigator.language)
   const char* lang = std::getenv("LANG");
   if (!lang)
     return SCE_ENGLISH_LANGUAGE;

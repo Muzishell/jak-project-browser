@@ -5,7 +5,8 @@
 //
 // URL options: ?args=... runtime arguments (default: boot the game normally, title screen;
 // "-boot -fakeiso -debug" for the debug boot into Sandover); ?log=1 opens the log; ?cache=0 turns
-// the file cache off; ?stats=1 / ?pacing=clock frame timing options (wasm/runtime_wasm.cpp).
+// the file cache off; ?stats=1 / ?pacing=clock frame timing options (wasm/runtime_wasm.cpp);
+// ?lang=fr the game's default language (otherwise the browser's).
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -109,6 +110,9 @@ var Module = {
     if (typeof ENV == "object") {
       if (params.get("stats") === "1") ENV.GK_FRAME_STATS = "1";
       if (params.get("pacing") === "clock") ENV.GK_FRAME_PACING = "clock";
+      // ?lang=fr: the game's default language (else the browser's, which Emscripten puts in LANG);
+      // only used until the game's settings exist, then its options menu decides
+      if (/^[a-z]{2}$/.test(params.get("lang") || "")) ENV.LANG = `${params.get("lang")}.UTF-8`;
     }
   }],
 };
