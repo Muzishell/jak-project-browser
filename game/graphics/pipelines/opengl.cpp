@@ -508,7 +508,14 @@ void render_game_frame(int game_width,
     auto p = scoped_prof("wait-for-dma");
     std::unique_lock<std::mutex> lock(g_gfx_data->dma_mutex);
     // there's a timeout here, so imgui can still be responsive even if we don't render anything
-    got_chain = g_gfx_data->dma_cv.wait_for(lock, std::chrono::milliseconds(40),
+#ifdef __EMSCRIPTEN__
+    // the browser frame loop only renders once the chain is there or it gave up waiting for it
+    // (FramePacer, wasm/runtime_wasm.cpp): blocking here would hold the frame past the refresh
+    constexpr auto kChainWait = std::chrono::milliseconds(0);
+#else
+    constexpr auto kChainWait = std::chrono::milliseconds(40);
+#endif
+    got_chain = g_gfx_data->dma_cv.wait_for(lock, kChainWait,
                                             [=] { return g_gfx_data->has_data_to_render; });
   }
   // render that chain.
@@ -790,6 +797,18 @@ u32 gl_vsync() {
   });
   return g_gfx_data->frame_idx & 1;
 }
+
+#ifdef __EMSCRIPTEN__
+bool Gfx::chain_ready() {
+  if (!g_gfx_data) {
+    return false;
+  }
+  // polled by the frame loop: never make the EE wait for the lock (it holds it while copying the
+  // chain, which isn't ready until then anyway)
+  std::unique_lock<std::mutex> lock(g_gfx_data->dma_mutex, std::try_to_lock);
+  return lock.owns_lock() && g_gfx_data->has_data_to_render;
+}
+#endif
 
 u32 gl_sync_path() {
   if (!g_gfx_data) {

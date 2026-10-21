@@ -49,6 +49,12 @@
     preRun: [() => {
       addRunDependency("data-cache");
       startDataCache().finally(() => removeRunDependency("data-cache"));
+      // ?stats=1: a frame timing summary in the log every 10 s; ?pacing=clock: frames on a 60 Hz
+      // clock instead of the display's refreshes, to compare (wasm/runtime_wasm.cpp, FramePacer)
+      if (typeof ENV == "object") {
+        if (params.get("stats") === "1") ENV.GK_FRAME_STATS = "1";
+        if (params.get("pacing") === "clock") ENV.GK_FRAME_PACING = "clock";
+      }
     }],
   };
 

@@ -9,9 +9,11 @@
  * Keep it in sync with runtime.cpp when the jak1 boot sequence there changes.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 #include "common/global_profiler/GlobalProfiler.h"
@@ -194,8 +196,167 @@ void use_immediate_timing() {
     emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
   }
 }
+
+// The display's refreshes: a requestAnimationFrame chain in the render thread's worker (rAF in a
+// dedicated worker follows the page's frames, and stops while the page is hidden) calls
+// gk_refresh, below, with each refresh's timestamp. (A plain function: clang-format breaks "=>".)
+EM_JS(void, gk_start_refresh_loop, (), {
+  if (typeof requestAnimationFrame != "function") {
+    return;
+  }
+  function tick(time) {
+    requestAnimationFrame(tick);
+    _gk_refresh(time);
+  }
+  requestAnimationFrame(tick);
+});
+
+/*!
+ * When to render. The page shows a frame on the display's refresh. Rendering on a 60 Hz clock
+ * drifts against the refresh (59.94 Hz, timer jitter...): when the two cross, a refresh gets no new
+ * frame or two, which showed as a one-to-two-frame freeze about once per second. And with an
+ * OffscreenCanvas, a frame drawn after the worker's rAF callback is committed with the next
+ * animation frame, which rAF then waits for (about 25 fps). So while refreshes come in, each one
+ * asks for a frame (at most 60 per second on 120/144 Hz displays) and renders it inside its rAF
+ * callback when the EE's DMA chain is there, which is the usual case: the EE has the whole
+ * refresh to compute it. A late chain is rendered by the main loop as soon as it arrives; until
+ * then no GL call is made and the previous image stays on screen. Without refreshes (hidden page,
+ * the desktop app's pane) frames are due on a 60 Hz clock as before, because the EE waits for every
+ * frame and would stall.
+ */
+struct FramePacer {
+  static constexpr double kFrameMs = 1000.0 / 60.0;
+  // like render_game_frame's native wait: render without a chain after that, which also wakes an
+  // EE that waits for vsync without having sent one
+  static constexpr double kChainTimeoutMs = 40;
+  // no refresh for that long: the page isn't drawing frames
+  static constexpr double kRefreshLostMs = 50;
+
+  double last_refresh_seen = -1e9;  // emscripten_get_now of the last refresh
+  // rAF timestamps (comparable with each other only) for the 60-per-second limit
+  double refresh_time = 0, frame_refresh_time = -1e9, pending_refresh_time = 0;
+  double pending_since = -1;  // a frame is due since then, waiting for the chain
+  double next_clock_frame = 0;
+  bool refresh_paced = false;
+  bool chain_timed_out = false;
+  bool in_refresh = false;  // rendering inside the rAF callback
+  int refresh_gaps = 0;     // refreshes more than 25 ms apart: frames the browser didn't draw
+
+  // ?pacing=clock (GK_FRAME_PACING=clock): ignore refreshes, the clock pacing used until now
+  bool clock_only = [] {
+    const char* p = std::getenv("GK_FRAME_PACING");
+    return p && std::string(p) == "clock";
+  }();
+
+  void on_refresh(double time, double now) {
+    if (clock_only) {
+      return;
+    }
+    refresh_gaps += last_refresh_seen > 0 && time - refresh_time > 25;
+    refresh_time = time;
+    last_refresh_seen = now;
+    if (pending_since < 0 && time - frame_refresh_time >= kFrameMs - 2) {
+      pending_since = now;
+      pending_refresh_time = time;
+    }
+  }
+
+  bool due(double now) {
+    refresh_paced = now - last_refresh_seen < kRefreshLostMs;
+    if (pending_since < 0) {
+      if (refresh_paced || now < next_clock_frame) {
+        return false;
+      }
+      pending_since = now;
+    }
+    chain_timed_out = !Gfx::chain_ready();
+    return !chain_timed_out || now - pending_since >= kChainTimeoutMs;
+  }
+
+  void rendered() {
+    if (refresh_paced) {
+      frame_refresh_time = pending_refresh_time;
+    }
+    // keep the clock cadence, unless a frame was late by more than a frame
+    next_clock_frame = pending_since - next_clock_frame > kFrameMs ? pending_since + kFrameMs
+                                                                   : next_clock_frame + kFrameMs;
+    pending_since = -1;
+  }
+};
+
+/*!
+ * Frame timing probe, on with ?stats=1 (shell.html sets GK_FRAME_STATS): one summary line every
+ * 10 s, nothing per frame (a print from a pthread waits for the page).
+ */
+struct FrameStats {
+  bool enabled = std::getenv("GK_FRAME_STATS") != nullptr;
+  double window_start = -1, last_frame = -1, max_gap = 0, gap_sum = 0;
+  int frames = 0, refresh_frames = 0, in_refresh_frames = 0, slow_gaps = 0, chain_timeouts = 0,
+      refresh_gaps_at_start = 0;
+
+  void frame(double now, const FramePacer& pacer) {
+    if (!enabled) {
+      return;
+    }
+    if (window_start < 0) {
+      window_start = now;
+    } else {
+      const double gap = now - last_frame;
+      max_gap = std::max(max_gap, gap);
+      gap_sum += gap;
+      slow_gaps += gap > 25;
+    }
+    last_frame = now;
+    frames++;
+    refresh_frames += pacer.refresh_paced;
+    in_refresh_frames += pacer.in_refresh;
+    chain_timeouts += pacer.chain_timed_out;
+    if (now - window_start >= 10000) {
+      lg::info(
+          "[frames] {:.1f} s: {} frames ({} on refreshes, {} inside rAF), mean gap {:.2f} ms, "
+          "max {:.1f} ms, {} gaps > 25 ms, {} without a chain, {} refresh gaps > 25 ms",
+          (now - window_start) / 1000, frames, refresh_frames, in_refresh_frames,
+          frames > 1 ? gap_sum / (frames - 1) : 0.0, max_gap, slow_gaps, chain_timeouts,
+          pacer.refresh_gaps - refresh_gaps_at_start);
+      const int gaps = pacer.refresh_gaps;
+      *this = FrameStats();
+      window_start = now;
+      last_frame = now;
+      refresh_gaps_at_start = gaps;
+    }
+  }
+};
+
+FramePacer g_pacer;
+FrameStats g_frame_stats;
+
+// one frame, if one is due: from the rAF callback or the main loop
+void render_if_due(double now) {
+  if (MasterExit != RuntimeExitStatus::RUNNING || !g_pacer.due(now)) {
+    return;
+  }
+  g_frame_stats.frame(now, g_pacer);
+  g_pacer.rendered();
+  if (Display::GetMainDisplay()) {
+    Display::GetMainDisplay()->render();
+    webgl_compat::log_errors();
+  }
+  // the renderer may have changed the swap interval
+  use_immediate_timing();
+}
 #endif
 }  // namespace
+
+#ifdef WASM_DISPLAY
+// called by the worker's rAF chain (gk_start_refresh_loop) on each display refresh
+extern "C" EMSCRIPTEN_KEEPALIVE void gk_refresh(double time) {
+  const double now = emscripten_get_now();
+  g_pacer.on_refresh(time, now);
+  g_pacer.in_refresh = true;
+  render_if_due(now);
+  g_pacer.in_refresh = false;
+}
+#endif
 
 RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const char** argv) {
   g_argc = argc;
@@ -240,29 +401,18 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
     // the video loop, one frame per main loop tick instead of runtime.cpp's blocking Gfx::Loop:
     // a WebGL context on an OffscreenCanvas only presents when its thread returns to the event
     // loop. When the EE asks to exit, shut down from there.
+    gk_start_refresh_loop();
     emscripten_set_main_loop(
         []() {
           if (MasterExit == RuntimeExitStatus::RUNNING) {
-            // Paced here, not by timers: in a worker a browser rounds setTimeout up to the OS
-            // timer tick (15.6 ms on Windows: a 60 Hz timeout ran at 32 Hz) and rAF needs a
-            // visible page (the EE waits for each frame, so the game would stall). Ticks come
-            // from scheduler.postTask (setImmediate timing) and render when the next 60 Hz frame
-            // is due; this replaces the renderer's frame limiter, which sleeps.
-            constexpr double kFrameMs = 1000.0 / 60.0;
-            static double next_frame = 0;
+            // Paced by FramePacer, not by the main loop's timing: in a worker a browser rounds
+            // setTimeout up to the OS timer tick (15.6 ms on Windows: a 60 Hz timeout ran at
+            // 32 Hz), and the main loop's rAF timing would stall the game while the page is
+            // hidden. Ticks come from scheduler.postTask (setImmediate timing): they render a
+            // chain that came late for its refresh, and the clock-paced frames. This replaces the
+            // renderer's frame limiter, which sleeps.
             use_immediate_timing();
-            double now = emscripten_get_now();
-            if (now < next_frame) {
-              return;
-            }
-            // keep the cadence, unless a frame was late by more than a frame
-            next_frame = now - next_frame > kFrameMs ? now + kFrameMs : next_frame + kFrameMs;
-            if (Display::GetMainDisplay()) {
-              Display::GetMainDisplay()->render();
-              webgl_compat::log_errors();
-            }
-            // the renderer may have changed the swap interval
-            use_immediate_timing();
+            render_if_due(emscripten_get_now());
             return;
           }
           emscripten_cancel_main_loop();

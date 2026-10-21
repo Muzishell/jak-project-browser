@@ -127,6 +127,11 @@ u32 vsync();
 void register_vsync_callback(std::function<void()> f);
 void clear_vsync_callback();
 u32 sync_path();
+#ifdef __EMSCRIPTEN__
+// true when the EE has sent a DMA chain that hasn't been rendered yet: the browser frame loop
+// (wasm/runtime_wasm.cpp) renders as soon as one is there instead of blocking in render()
+bool chain_ready();
+#endif
 
 // matching enum in kernel-defs.gc !!
 enum class RendererTreeType { NONE = 0, TFRAG3 = 1, TIE3 = 2, INVALID };
