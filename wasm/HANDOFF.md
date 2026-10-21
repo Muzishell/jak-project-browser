@@ -1,59 +1,47 @@
-# Handoff - 2026-10-20
+# Handoff - 2026-10-21
 
 ## Where we are
-Milestone: M6 done (804ab36e1), next is M7 Browser shell + hosting. Sandover is playable in Chrome
-through gk_web: Jak and Daxter drawn (merc index-buffer fix, 867b7985d), keyboard and Gamepad API
-input (162373965), 989snd audio through Web Audio, 60 fps with page focus (M6 perf slice 1,
-3e9ed26c0). Geyser Rock renders (M5, 521db0f0b). Last reported: native goalc-test 1669/1669, wasm
-tests 76/76, kernel-test.mjs 4/4 (from the M6 commit message, not re-run in this session).
+Milestones M1–M7 are done (CLAUDE.MD). The first playable (title, intro, Geyser Rock, Sandover)
+runs in Chrome and Firefox from https://jak-web.adrienmuzika.workers.dev and
+https://jak.anomandoris.com, both behind Cloudflare Access (owner's email policy).
 
-M7 slice 1: game files are no longer preloaded. gk_web uses WasmFS with a fetch backend at
-`/jak-project/out` (`wasm/web/main_web.cpp`), reading `/data/manifest.txt` and fetching each file
-on first read; `stage_data.sh` + `serve.mjs` provide `/data/` locally. gk_web.data is 0.7 MB.
-
-M7 slice 2 (local only): `wasm/host/` holds the Worker `jak-web` (static runtime + `/data/*` from
-R2 `jak-data`, COOP/COEP, Access JWT check) and its scripts; tested with `wrangler dev` and a local
-R2 copy. The owner has enabled R2 and Zero Trust (with the email policy) and logged Wrangler in.
-Deploy steps 1-3 are done: bucket `jak-data` is private (no r2.dev URL, no custom domain) and
-holds the 343 files (manifest and sampled objects compared byte for byte); `jak-web` is deployed
-(version 5cf50e3a) with no address ("No targets deployed").
-
-M7 slice 3, OPFS cache (fc2a590eb), deployed 2026-10-20 as jak-web version 10a31d1c with the
-"path size md5" manifest in R2 (sampled objects match its md5s): `wasm/web/data_sw.js` answers
-/data/ from OPFS (content-addressed by md5), `shell.html` registers it in preRun and fills the cache
-in the background (`?cache=0` turns it off). Verified by the owner in Firefox 158 against the local
-server (127.0.0.1:8090; Firefox's `localhost` tries IPv6, which WSL doesn't forward), and on the
-deployed site in the desktop app's pane (worker in control, cache filling, Sandover drawn). The
-pane can't register it from the local http server; the page then falls back to the network.
-After the deploy, 48 unauthenticated/forged requests on both hostnames all got the Access login.
+- Hosting (`wasm/host/`): one Worker `jak-web` = static runtime (`gk_web.*`, `page.js`,
+  `data_sw.js`) + `/data/*` from the private R2 bucket `jak-data` (game files, HEAD + Range) +
+  `/saves/*` from the private bucket `jak-saves` (per Access email). COOP/COEP and an Access JWT
+  check on every request. Deploy: `build_site.sh` + `wrangler deploy`; game files:
+  `stage_data.sh` + `upload_data.sh --remote` (only new/changed files; voices `VOICE_LANGS`,
+  default ENG FRE). Check after each deploy: `lockcheck`-style curl of both hostnames (90/90 got
+  the Access login, last on version bf75cc83).
+- Page (`wasm/web/page.js`, `shell.html`): the game view fills the window and renders at its size
+  (`gk_set_view_size`, Quality setting), Menu panel (saves sync/export/import, fullscreen,
+  game-file cache progress, log drawer with copy), loading screen, title-screen boot by default,
+  default language from the browser (`?lang=fr`).
+- Files: WasmFS fetch backend at `/jak-project/out` (`main_web.cpp`) with Emscripten's backend JS
+  replaced by `wasmfs_fetch_fix.js` (whole-file chunk bug that crashed the intro); OPFS cache
+  through the service worker; saves/settings on the OPFS backend at `/user`.
+- Frames: refresh-paced, immediate main-loop ticks only when needed (`update_loop_timing`), which
+  fixed Firefox's 200–500 ms frames (collector pauses from back-to-back postTask). `?stats=1`
+  prints frame and render timing every 10 s.
+- GOAL wasm modules keep their name section (profiles and stack traces show GOAL names).
 
 ## Uncommitted / in-flight
 Nothing.
 
-Deployed 2026-10-20 (version 6302ca3e): the page boots the game by default (570cdd32e; without
-?args it used to run only the kernel test) and the draw-buffer fix (d2daa05aa). Also served at the
-owner's custom domain jak.anomandoris.com, behind the same Access policy.
-
 ## Next 3 steps
-1. M7: deployed at https://jak-web.adrienmuzika.workers.dev behind Access (steps 4-6 done:
-   unauthenticated/forged requests all get the Access login). Signed in, Chrome boots to Geyser
-   Rock from R2 (~12 s from mount to the first level frame). Watch for Access session expiry
-   mid-game.
-2. M7 slice 4 (saves in OPFS + `/saves/*` sync + export/import, loading screen, title-screen boot,
-   `wasm/web/page.js`) is deployed (jak-web e8741fc4, private bucket `jak-saves` created; both
-   hostnames still locked). Next: save from the game (new game → memory card) on one machine and
-   load it on another.
-3. M7: check a second visit on the deployed site loads with no /data/ downloads (cache complete).
+1. Full game (beyond the first playable): see `wasm/docs/FULL-GAME.md` for the plan.
+2. Graphics quality: MSAA (renderbuffer + blit resolve) and `WEBGL_multi_draw`; tradeoffs in
+   the CLAUDE.MD Log (2026-10-21).
+3. Access session expiry mid-game: detect a redirected `/data/` fetch and ask for a reload.
 
 ## Known broken / open questions
-- Untested: a real memory-card save from gameplay (settings files went through the same path).
-- Left from M6: renderer cost when the page is unfocused (~47 ms frames), the IOP thread spinning
-  while idle (`IOP::wait_run_iop`). A PS5 pad and Firefox were checked by the owner.
-- MSAA off in the web build; multi-draw is a loop (no `WEBGL_multi_draw`).
-- Harness: `wasm/tools` deps (`npm ci`, `npx playwright install chromium`) need the owner's OK;
-  `gl-audit.mjs` does not run on this branch; `capture.mjs` has no frame hook (`window.__jak.frame`
-  is not set), so it waits for `--timeout`.
+- The IOP thread spins (one core) by the owner's choice: sleeping it made frames worse (CPU
+  clocks); the sleep version is in the CLAUDE.MD Log, not in the code.
+- Frames are slower (~47 ms) while the page is unfocused.
+- Only English and French voices are hosted; other levels than the first playable are uploaded
+  but not played in the browser yet.
+- The desktop app's browser pane: no service worker on local http, CSS transitions and
+  screenshots freeze while the app window is hidden, ~650 MB storage quota.
 
 ## Numbers
-Tests: goalc-test 1669/1669, wasm tests 76/76, kernel-test.mjs 4/4 (M6 commit). Perf (Chrome,
-focused): GAME.CGO links in 0.6 s, Geyser Rock reached in ~20-30 s, 16.7 ms/frame; unfocused ~47 ms.
+Tests: see the last test run in the CLAUDE.MD Log. Perf (Chrome and Firefox, focused, intro and
+Geyser Rock): 550+ frames per 10 s on a 55 Hz display, render 3–6 ms per frame.

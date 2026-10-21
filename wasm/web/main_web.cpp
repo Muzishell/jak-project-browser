@@ -5,6 +5,7 @@
  * ?args=-fakeiso+-debug).
  */
 
+#include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
 #include <string>
@@ -67,6 +68,11 @@ bool mount_game_data() {
 }  // namespace
 
 int main(int argc, char** argv) {
+  // like native gk without -v: info and above. Every printed line from a pthread is a synchronous
+  // round trip to the page's thread, and debug level printed each streamed chunk and linked object.
+  // ?verbose=1 (page.js sets GK_LOG_DEBUG) prints debug too. The page has no use for ANSI colors.
+  lg::set_stdout_level(std::getenv("GK_LOG_DEBUG") ? lg::level::debug : lg::level::info);
+  lg::disable_ansi_colors();
   lg::initialize();
   // the repo files the runtime reads: shaders etc. preloaded under /jak-project
   // (wasm/web/gk_web.cmake), the game files fetched from /data/

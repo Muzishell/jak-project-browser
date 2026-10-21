@@ -99,8 +99,10 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
       page focus. Left for later: renderer cost when the page is unfocused, an IOP that doesn't
       spin while idle. The owner played with a PS5 controller (works; R2 was the debug fly control
       of the `-debug` boot) and in Firefox (2026-10-21).
-- [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
-      Cloudflare Access, save cloud sync and export/import.
+- [x] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
+      Cloudflare Access, save cloud sync and export/import. Owner-verified 2026-10-21: saves from
+      gameplay sync and load on a second machine, a second visit loads from the cache, French
+      text and voices, the new page in Chrome and Firefox.
       Slice 1 done: game files fetched lazily from `/data/` (WasmFS fetch backend), no preload.
       Slice 2: `wasm/host/` Worker `jak-web` + R2 `jak-data`, deployed 2026-10-20 at
       https://jak-web.adrienmuzika.workers.dev behind Access (all traffic); unauthenticated and
