@@ -133,6 +133,8 @@ target_link_options(gk_web PRIVATE
     "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/game/assets/sdl_controller_db.txt@/jak-project/game/assets/sdl_controller_db.txt"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js"
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js"
+    # replaces Emscripten's WasmFS fetch backend JS with a fixed copy (whole-file chunk geometry)
+    "SHELL:--js-library ${CMAKE_CURRENT_LIST_DIR}/wasmfs_fetch_fix.js"
     "SHELL:--shell-file ${CMAKE_CURRENT_LIST_DIR}/shell.html")
 set_target_properties(gk_web PROPERTIES SUFFIX ".html")
 # next to gk_web.html: the page's script, and the service worker of the OPFS file cache (its scope
@@ -145,4 +147,5 @@ file(GLOB WEB_SHADERS CONFIGURE_DEPENDS ${OPENGL}/shaders/*)
 set_property(TARGET gk_web APPEND PROPERTY LINK_DEPENDS
              ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js
              ${CMAKE_CURRENT_LIST_DIR}/shell.html ${CMAKE_CURRENT_LIST_DIR}/data_sw.js
-             ${CMAKE_CURRENT_LIST_DIR}/page.js ${WEB_SHADERS})
+             ${CMAKE_CURRENT_LIST_DIR}/page.js ${CMAKE_CURRENT_LIST_DIR}/wasmfs_fetch_fix.js
+             ${WEB_SHADERS})

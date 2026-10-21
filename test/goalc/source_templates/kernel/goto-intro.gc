@@ -1,0 +1,17 @@
+;; Start a new game into the intro cutscene once the game has booted, like the title menu's
+;; "new game" (progress.gc). For the wasm runtimes:
+;; -boot -debug ... -wasm-test <this object> wasm-goto-intro <frames>
+;; The boot loads village1 first; a process waits for it before starting, so the two loads don't race.
+
+(defun wasm-goto-intro ()
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (until (let ((lev (level-get *level* 'village1))) (and lev (= (-> lev status) 'active)))
+        (suspend))
+      (suspend-for (seconds 1))
+      (format 0 "wasm-goto-intro: new game at intro-start~%")
+      (initialize! *game-info* 'game (the-as game-save #f) "intro-start")
+      (none)))
+  0)
