@@ -624,6 +624,8 @@ WasmObject WasmModuleGen::run(FileEnv* env, const TypeSystem* ts) {
         fmt::format("wasm backend: Asyncify made an invalid module for {}", env->name()));
   }
 
+  // keep the name section: GOAL function names in browser profiles and stack traces
+  BinaryenSetDebugInfo(true);
   auto result = BinaryenModuleAllocateAndWrite(m_module, nullptr);
   out.wasm.assign((u8*)result.binary, (u8*)result.binary + result.binaryBytes);
   free(result.binary);
