@@ -51,10 +51,13 @@
 #include "game/overlord/jak1/stream.h"
 #include "game/runtime.h"
 #ifdef WASM_DISPLAY
+#include <atomic>
 #include <emscripten.h>
 
 #include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
+#include "game/system/hid/display_manager.h"
+#include <emscripten/html5_webgl.h>
 
 namespace webgl_compat {
 // wasm/web/webgl_compat.cpp
@@ -360,11 +363,33 @@ void update_loop_timing(double now) {
   }
 }
 
+// The game view's size in CSS pixels, asked by the page (gk_set_view_size); applied by the render
+// thread, which owns the window and its OffscreenCanvas.
+std::atomic<int> g_view_w = 0, g_view_h = 0;
+int g_applied_view_w = 0, g_applied_view_h = 0;
+
+void apply_view_size() {
+  const int w = g_view_w, h = g_view_h;
+  if (w <= 0 || h <= 0 || (w == g_applied_view_w && h == g_applied_view_h)) {
+    return;
+  }
+  auto display = Display::GetMainDisplay();
+  if (!display || !display->get_display_manager()) {
+    return;
+  }
+  // like a resized desktop window: SDL resizes the canvas (times the pixel ratio, the window is
+  // high density) and the renderer draws at the new framebuffer size
+  display->get_display_manager()->enqueue_set_window_size(w, h);
+  g_applied_view_w = w;
+  g_applied_view_h = h;
+}
+
 // one frame, if one is due: from the rAF callback or the main loop
 void render_if_due(double now) {
   if (MasterExit != RuntimeExitStatus::RUNNING || !g_pacer.due(now)) {
     return;
   }
+  apply_view_size();
   g_frame_stats.frame(now, g_pacer);
   g_pacer.rendered();
   if (Display::GetMainDisplay()) {
@@ -372,12 +397,28 @@ void render_if_due(double now) {
     Display::GetMainDisplay()->render();
     webgl_compat::log_errors();
     g_frame_stats.rendered(emscripten_get_now() - render_start);
+    // the drawing buffer the frame went to, once per change (what the view size gave)
+    static int logged_w = 0, logged_h = 0;
+    int fb_w = 0, fb_h = 0;
+    emscripten_webgl_get_drawing_buffer_size(emscripten_webgl_get_current_context(), &fb_w, &fb_h);
+    if (fb_w != logged_w || fb_h != logged_h) {
+      lg::info("[view] drawing buffer {}x{} (view {}x{} CSS px)", fb_w, fb_h, g_applied_view_w,
+               g_applied_view_h);
+      logged_w = fb_w;
+      logged_h = fb_h;
+    }
   }
 }
 #endif
 }  // namespace
 
 #ifdef WASM_DISPLAY
+// called by the page (wasm/web/page.js) when the game view's size changes, in CSS pixels
+extern "C" EMSCRIPTEN_KEEPALIVE void gk_set_view_size(int w, int h) {
+  g_view_w = w;
+  g_view_h = h;
+}
+
 // called by the worker's rAF chain (gk_start_refresh_loop) on each display refresh
 extern "C" EMSCRIPTEN_KEEPALIVE void gk_refresh(double time) {
   const double now = emscripten_get_now();

@@ -5,26 +5,91 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jak and Daxter</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; }
-  #stage { position: relative; width: 640px; height: 480px; }
-  #canvas { display: block; width: 640px; height: 480px; background: #000; }
+  :root {
+    color-scheme: dark;
+    --bg: #000;
+    --panel: rgba(18, 18, 22, 0.94);
+    --line: #2c2c34;
+    --text: #d6d6dc;
+    --muted: #8b8b96;
+    --accent: #e8b04a;
+    --ok: #7ccf8a;
+    --warn: #e0a85a;
+    --bad: #e06a6a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+
+  /* the game view fills the window; the runtime renders at its size (page.js, gk_set_view_size) */
+  #stage { position: fixed; inset: 0; background: #000; }
+  /* SDL sets the canvas's CSS size when the window is resized: the stage decides it */
+  #canvas { display: block; width: 100% !important; height: 100% !important; background: #000;
+            outline: none; }
+
   #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-             justify-content: center; gap: 14px; background: #000; }
-  #overlay[hidden] { display: none; }
-  #overlay .title { font-size: 26px; color: #e8b04a; letter-spacing: 1px; }
-  #overlay-status { color: #999; min-height: 1.2em; }
-  #overlay .spinner { width: 28px; height: 28px; border: 3px solid #333; border-top-color: #e8b04a;
-                      border-radius: 50%; animation: spin 1s linear infinite; }
+             justify-content: center; gap: 16px; background: #000; transition: opacity .4s; }
+  #overlay[hidden] { display: flex; opacity: 0; pointer-events: none; }
+  #overlay .title { font-size: 30px; color: var(--accent); letter-spacing: 1px; }
+  #overlay-status { color: var(--muted); min-height: 1.4em; }
+  .spinner { width: 30px; height: 30px; border: 3px solid #333; border-top-color: var(--accent);
+             border-radius: 50%; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 4px; width: 632px; }
-  #bar button { background: #222; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 3px 8px;
-                font: inherit; cursor: pointer; }
-  #bar button:hover { border-color: #888; }
-  #saves, #cache { color: #8a8; }
-  #bar .spacer { flex: 1; }
-  #log { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 0; padding: 4px;
-         font: 12px monospace; }
+
+  /* menu button: top right, fades out while the mouse is still */
+  #menubtn { position: fixed; top: 12px; right: 12px; z-index: 10; display: flex; align-items: center;
+             gap: 8px; padding: 7px 12px; border-radius: 18px; border: 1px solid var(--line);
+             background: rgba(18, 18, 22, 0.75); color: var(--text); font: inherit; cursor: pointer;
+             transition: opacity .3s; }
+  #menubtn:hover { border-color: #555; }
+  body.idle #menubtn:not(:focus-visible) { opacity: 0; pointer-events: none; }
+  body.panel-open #menubtn { opacity: 0; pointer-events: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+
+  /* side panel */
+  #panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(340px, 100vw); z-index: 20;
+           background: var(--panel); border-left: 1px solid var(--line); padding: 16px 18px;
+           overflow-y: auto; transform: translateX(100%); transition: transform .2s ease;
+           backdrop-filter: blur(6px); }
+  body.panel-open #panel { transform: none; }
+  #panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  #panel h1 { font-size: 16px; margin: 0; color: var(--accent); font-weight: 600; }
+  #panel h2 { font-size: 11px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase;
+              letter-spacing: .08em; font-weight: 600; }
+  #panel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #panel .status { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #panel .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  button.btn { background: #24242b; color: var(--text); border: 1px solid #3a3a44; border-radius: 6px;
+               padding: 6px 12px; font: inherit; cursor: pointer; }
+  button.btn:hover { border-color: #666; }
+  button.btn.danger { border-color: #7a3a3a; color: #f0b0b0; }
+  .confirm { margin-top: 10px; padding: 10px; border: 1px solid #5a4630; border-radius: 6px;
+             background: rgba(232, 176, 74, 0.06); display: grid; gap: 8px; }
+  .confirm[hidden] { display: none; }
+  button.icon { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer;
+                line-height: 1; padding: 2px 6px; }
+  button.icon:hover { color: var(--text); }
+  .bar { height: 6px; background: #26262d; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  select { background: #24242b; color: var(--text); border: 1px solid #3a3a44; border-radius: 6px;
+           padding: 5px 8px; font: inherit; }
+
+  /* log drawer: bottom, over the game */
+  #logdrawer { position: fixed; left: 0; right: 0; bottom: 0; height: 38vh; z-index: 15;
+               background: rgba(8, 8, 10, 0.92); border-top: 1px solid var(--line); display: flex;
+               flex-direction: column; transform: translateY(100%); transition: transform .2s ease; }
+  body.log-open #logdrawer { transform: none; }
+  body.log-open.panel-open #logdrawer { right: min(340px, 100vw); }
+  #logdrawer .tools { display: flex; gap: 8px; align-items: center; padding: 6px 10px;
+                      border-bottom: 1px solid var(--line); }
+  #logdrawer .tools .grow { flex: 1; color: var(--muted); font-size: 12px; }
+  #log { flex: 1; margin: 0; padding: 6px 10px; overflow: auto; white-space: pre-wrap;
+         font: 12px/1.35 ui-monospace, Consolas, monospace; color: #c8c8cc; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 30;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+           padding: 8px 14px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #toast.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -37,17 +102,66 @@
     <div id="overlay-status">Starting</div>
   </div>
 </div>
-<div id="bar">
-  <span id="saves">saves: …</span>
-  <button id="export" title="Download the saves and settings as a .tar">Export saves</button>
-  <button id="import" title="Replace the saves and settings from a .tar (applied on reload)">Import saves</button>
-  <input id="importfile" type="file" accept=".tar,application/x-tar" hidden>
-  <span class="spacer"></span>
-  <span id="cache"></span>
-  <button id="logbtn">Log</button>
-</div>
-<pre id="log" hidden></pre>
-<!-- wasm/web/page.js: arguments, log, loading screen, file cache, saves -->
+
+<button id="menubtn" title="Menu"><span id="menudot" class="dot"></span>Menu</button>
+
+<aside id="panel" aria-label="Menu">
+  <header>
+    <h1>Jak and Daxter</h1>
+    <button class="icon" id="closepanel" title="Close">×</button>
+  </header>
+
+  <h2>Saves</h2>
+  <div class="status"><span id="savesdot" class="dot"></span><span id="saves">…</span></div>
+  <div class="row">
+    <button class="btn" id="export" title="Download the saves and settings as a .tar">Export</button>
+    <button class="btn" id="import" title="Replace the saves and settings from a .tar">Import…</button>
+    <input id="importfile" type="file" accept=".tar,application/x-tar" hidden>
+  </div>
+  <div id="importconfirm" class="confirm" hidden>
+    <div id="importtext"></div>
+    <div class="row">
+      <button class="btn danger" id="importyes">Replace and restart</button>
+      <button class="btn" id="importcancel">Cancel</button>
+    </div>
+  </div>
+  <div class="hint">Saves sync to your account automatically. Export keeps a copy on this computer.</div>
+
+  <h2>Display</h2>
+  <div class="row">
+    <button class="btn" id="fullscreen">Fullscreen</button>
+    <label>Quality
+      <select id="scale" title="Render resolution relative to the screen">
+        <option value="1">Sharp</option>
+        <option value="0.75">Balanced</option>
+        <option value="0.5">Fast</option>
+      </select>
+    </label>
+  </div>
+
+  <h2>Game files</h2>
+  <div id="cache">…</div>
+  <div class="bar"><div id="cachebar"></div></div>
+  <div class="hint">Downloaded once, then kept in this browser so later visits start offline.</div>
+
+  <h2>Diagnostics</h2>
+  <div class="row">
+    <button class="btn" id="logbtn">Show log</button>
+    <button class="btn" id="copylog" title="Copy the whole log">Copy log</button>
+  </div>
+</aside>
+
+<section id="logdrawer" aria-label="Log">
+  <div class="tools">
+    <span class="grow" id="loginfo">Log</span>
+    <button class="btn" id="copylog2">Copy</button>
+    <button class="icon" id="closelog" title="Close">×</button>
+  </div>
+  <pre id="log"></pre>
+</section>
+
+<div id="toast"></div>
+<!-- wasm/web/page.js: arguments, log, loading screen, view size, file cache, saves, menu -->
 <script src="page.js"></script>
 {{{ SCRIPT }}}
 </body>

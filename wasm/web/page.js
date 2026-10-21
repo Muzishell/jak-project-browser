@@ -4,27 +4,55 @@
 // exported and imported as a .tar.
 //
 // URL options: ?args=... runtime arguments (default: boot the game normally, title screen;
-// "-boot -fakeiso -debug" for the debug boot into Sandover); ?log=1 shows the log; ?cache=0 turns
+// "-boot -fakeiso -debug" for the debug boot into Sandover); ?log=1 opens the log; ?cache=0 turns
 // the file cache off; ?stats=1 / ?pacing=clock frame timing options (wasm/runtime_wasm.cpp).
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
+const body = document.body;
+
+// per-browser preferences (quality); never required
+const prefs = {
+  get(k, d) {
+    try {
+      return localStorage.getItem(`jak.${k}`) ?? d;
+    } catch {
+      return d;
+    }
+  },
+  set(k, v) {
+    try {
+      localStorage.setItem(`jak.${k}`, v);
+    } catch {}
+  },
+};
+
+let toastTimer = null;
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
 
 // ---- log -------------------------------------------------------------------------------------
-// the whole log (window.gkLog); the page shows its end
+// the whole log (window.gkLog); the drawer shows its end
 const lines = (window.gkLog = []);
 // WebGL messages are kept apart, the game's log scrolls them away (inspect window.webglLog)
 window.webglLog = [];
 // A pthread's print waits until this thread has handled it (Emscripten proxies stdout writes
-// synchronously), so printing must be cheap: the page is redrawn at most every 100 ms.
+// synchronously), so printing must be cheap: the drawer is redrawn at most every 100 ms, and only
+// while it is open.
 let redraw = null;
+const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 function drawLog() {
   redraw = null;
+  if (!body.classList.contains("log-open")) return;
   const log = $("log");
-  if (!log.hidden) {
-    log.textContent = lines.slice(-400).join("\n");
-    log.scrollTop = log.scrollHeight;
-  }
+  log.textContent = lines.slice(-400).map(stripAnsi).join("\n");
+  log.scrollTop = log.scrollHeight;
+  $("loginfo").textContent = `Log: ${lines.length} lines (last 400 shown)`;
 }
 function show(text) {
   if (/WebGL/.test(text) && window.webglLog.length < 200) window.webglLog.push(text);
@@ -35,7 +63,7 @@ function show(text) {
 }
 
 // ---- loading screen ----------------------------------------------------------------------------
-// Covers the canvas until the game shows something: a level's first display command (title
+// Covers the canvas until the game shows something: a level shown (its display command, title
 // screen or the debug boot's level) or the end of the debug boot's blackout; 120 s at most.
 let loading = true;
 function loadingStatus(text) {
@@ -50,7 +78,7 @@ function loadingDone() {
 function loadingFromLog(text) {
   if (!loading) return;
   let m;
-  if (/Setting level \S+ display command to display|coming out of blackout/.test(text)) {
+  if (/Setting level \S+ display command to display|Displaying level \S+ \[display\]|coming out of blackout/.test(text)) {
     loadingDone();
   } else if ((m = /\[link and exec\] (\S+)/.exec(text))) {
     loadingStatus(`Loading game code: ${m[1]}`);
@@ -67,6 +95,7 @@ var Module = {
   // the game's output stays on the page: the console keeps the browser's own messages (WebGL)
   print: show,
   printErr: show,
+  onRuntimeInitialized: () => sendViewSize(),
   // the game starts once the cache's service worker controls the page (so its threads' fetches go
   // through it) and the saves are pulled and imported (the game must not hold them open yet)
   preRun: [() => {
@@ -84,26 +113,100 @@ var Module = {
   }],
 };
 
-$("log").hidden = params.get("log") !== "1";
-$("logbtn").onclick = () => {
-  $("log").hidden = !$("log").hidden;
-  drawLog();
+// ---- view size -------------------------------------------------------------------------------
+// The game renders at the view's size: the runtime resizes its window (gk_set_view_size, in CSS
+// pixels; SDL scales by the pixel ratio). Quality renders fewer pixels, stretched to the view.
+const quality = $("scale");
+quality.value = prefs.get("quality", "1");
+function sendViewSize() {
+  if (!Module._gk_set_view_size) return;
+  const r = $("stage").getBoundingClientRect();
+  const q = Number(quality.value) || 1;
+  Module._gk_set_view_size(Math.max(320, Math.round(r.width * q)), Math.max(240, Math.round(r.height * q)));
+}
+new ResizeObserver(() => sendViewSize()).observe($("stage"));
+quality.onchange = () => {
+  prefs.set("quality", quality.value);
+  sendViewSize();
+  $("canvas").focus();
 };
+
+// ---- menu, fullscreen, log drawer --------------------------------------------------------------
+function setPanel(open) {
+  body.classList.toggle("panel-open", open);
+  if (!open) $("canvas").focus();
+}
+$("menubtn").onclick = () => setPanel(true);
+$("closepanel").onclick = () => setPanel(false);
+// a click on the game closes the panel
+$("stage").addEventListener("pointerdown", () => setPanel(false));
+
+// the menu button hides while the mouse is still
+let idleTimer = null;
+function wake() {
+  body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => body.classList.add("idle"), 2500);
+}
+addEventListener("pointermove", wake);
+wake();
+
+$("fullscreen").onclick = () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    document.documentElement.requestFullscreen?.().catch((e) => toast(`Fullscreen: ${e.message}`));
+  }
+  setPanel(false);
+};
+document.addEventListener("fullscreenchange", () => {
+  $("fullscreen").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+});
+
+function setLog(open) {
+  body.classList.toggle("log-open", open);
+  $("logbtn").textContent = open ? "Hide log" : "Show log";
+  drawLog();
+}
+$("logbtn").onclick = () => setLog(!body.classList.contains("log-open"));
+$("closelog").onclick = () => setLog(false);
+async function copyLog() {
+  const text = lines.map(stripAnsi).join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`Log copied (${lines.length} lines)`);
+  } catch {
+    // no clipboard permission: download it instead
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = "jak-log.txt";
+    a.click();
+    toast("Log downloaded");
+  }
+}
+$("copylog").onclick = copyLog;
+$("copylog2").onclick = copyLog;
+setLog(params.get("log") === "1");
 
 // ---- OPFS cache of the game files ----------------------------------------------------------
 // data_sw.js answers /data/ from it; this page fills it in the background, one file at a time,
 // streamed to disk.
 const cacheEl = $("cache");
+function cacheStatus(text, fraction) {
+  cacheEl.textContent = text;
+  if (fraction !== undefined) $("cachebar").style.width = `${Math.round(fraction * 100)}%`;
+}
 async function startDataCache() {
   if (!("serviceWorker" in navigator) || !navigator.storage?.getDirectory) {
-    cacheEl.textContent = "cache: not supported by this browser";
+    cacheStatus("Not supported by this browser: files are downloaded each visit.");
     return;
   }
   if (params.get("cache") === "0") {
     for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
-    cacheEl.textContent = "cache: off";
+    cacheStatus("Off (?cache=0).");
     return;
   }
+  cacheStatus("Waiting for the game to start…");
   try {
     loadingStatus("Starting the file cache");
     await navigator.serviceWorker.register("data_sw.js");
@@ -119,10 +222,10 @@ async function startDataCache() {
     // ask the browser not to evict the cache (and the saves) under storage pressure
     navigator.storage.persist?.();
     // after the first level has had the network to itself
-    setTimeout(() => fillDataCache().catch((e) => (cacheEl.textContent = `cache: ${e.message}`)), 20000);
+    setTimeout(() => fillDataCache().catch((e) => cacheStatus(`Stopped: ${e.message}`)), 20000);
   } catch (e) {
     // e.g. the desktop app's browser pane on a local http server; files come from the network
-    cacheEl.textContent = "cache: off (no service worker)";
+    cacheStatus("Off: no service worker here, files are downloaded each visit.");
     cacheEl.title = e.message;
   }
 }
@@ -140,8 +243,9 @@ async function fillDataCache() {
   const total = entries.reduce((n, e) => n + e.size, 0);
   let done = entries.filter((e) => have.get(e.md5) === e.size);
   let bytes = done.reduce((n, e) => n + e.size, 0);
-  const status = () => (cacheEl.textContent =
-    `cache: ${done.length}/${entries.length} files, ${(bytes / 2 ** 20).toFixed(0)}/${(total / 2 ** 20).toFixed(0)} MB`);
+  const status = () => cacheStatus(
+    `${(bytes / 2 ** 20).toFixed(0)} of ${(total / 2 ** 20).toFixed(0)} MB kept (${done.length}/${entries.length} files)`,
+    total ? bytes / total : 1);
   status();
   for (const e of entries) {
     if (have.get(e.md5) === e.size) continue;
@@ -162,7 +266,7 @@ async function fillDataCache() {
   for (const name of have.keys()) {
     if (!keep.has(name)) await dir.removeEntry(name);
   }
-  cacheEl.textContent += " (complete)";
+  cacheStatus(`Complete: ${(total / 2 ** 20).toFixed(0)} MB kept in this browser.`, 1);
 }
 
 // ---- saves -----------------------------------------------------------------------------------
@@ -173,6 +277,11 @@ async function fillDataCache() {
 const SAVE_DIRS = ["OpenGOAL/jak1/saves", "OpenGOAL/jak1/settings"];
 const SAVE_PATH = /^OpenGOAL\/jak1\/(saves|settings)\/[A-Za-z0-9._-]{1,64}$/;
 const savesEl = $("saves");
+// level: "ok" (synced), "warn" (this device only), "bad" (sync failing); shown on the menu button too
+function savesStatus(text, level) {
+  savesEl.textContent = text;
+  for (const id of ["savesdot", "menudot"]) $(id).className = `dot ${level || ""}`;
+}
 let savesRemote = false; // /saves/ answered (the deployed Worker; not the local dev server)
 let saveIndex = {};
 
@@ -245,7 +354,7 @@ const versionOf = (path, file) =>
 // Before the game starts: newer saves from the cloud, then a pending import.
 async function prepareSaves() {
   if (!navigator.storage?.getDirectory) {
-    savesEl.textContent = "saves: not kept (no OPFS in this browser)";
+    savesStatus("Not kept: this browser has no private file storage.", "bad");
     return;
   }
   loadingStatus("Syncing saves");
@@ -267,12 +376,12 @@ async function prepareSaves() {
         pulled++;
       }
       await saveIndexFile();
-      savesEl.textContent = pulled ? `saves: ${pulled} file(s) from the cloud` : "saves: synced";
+      savesStatus(pulled ? `Synced: ${pulled} file(s) from your account` : "Synced with your account", "ok");
     } else {
-      savesEl.textContent = "saves: on this device only";
+      savesStatus("On this device only (no cloud sync here)", "warn");
     }
   } catch (e) {
-    savesEl.textContent = `saves: offline (${e.message}), on this device only`;
+    savesStatus(`Offline: on this device only (${e.message})`, "warn");
   }
   await applyPendingImport();
   if (savesRemote) setInterval(() => pushSaves().catch(() => {}), 10000);
@@ -293,13 +402,13 @@ async function pushSaves() {
       });
       if (res.ok) {
         saveIndex[path] = { mtime: file.lastModified, stamp: file.lastModified };
-        savesEl.textContent = `saves: synced ${new Date().toLocaleTimeString()}`;
+        savesStatus(`Synced at ${new Date().toLocaleTimeString()}`, "ok");
       } else if (res.status === 409) {
         // another device saved later: leave it, this device pulls it on its next start
         saveIndex[path] = { mtime: file.lastModified, stamp: file.lastModified };
-        savesEl.textContent = "saves: newer save on another device (reload to get it)";
+        savesStatus("A newer save exists on another device: reload to get it", "warn");
       } else {
-        savesEl.textContent = `saves: sync failed (HTTP ${res.status})`;
+        savesStatus(`Sync failed (HTTP ${res.status}): kept on this device, retrying`, "bad");
         break;
       }
     }
@@ -344,7 +453,7 @@ $("export").onclick = async () => {
   a.download = `jak1-saves-${new Date().toISOString().slice(0, 10)}.tar`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-  savesEl.textContent = `saves: exported ${files.size} file(s)`;
+  toast(`Exported ${files.size} file(s)`);
 };
 
 function untar(buf) {
@@ -365,25 +474,33 @@ function untar(buf) {
 
 // The game holds its files open while running, so an import is stored aside and applied on the
 // next start, before the game (prepareSaves).
+// The choice is confirmed in the panel: a native confirm() would freeze the game's threads, which
+// wait on this one.
+let importFile = null;
 $("import").onclick = () => $("importfile").click();
 $("importfile").onchange = async (e) => {
   const file = e.target.files[0];
+  e.target.value = "";
   if (!file) return;
   const entries = untar(await file.arrayBuffer()).filter((x) => SAVE_PATH.test(x.name));
   if (!entries.length) {
-    savesEl.textContent = "saves: no Jak 1 save files in that archive";
+    toast("No Jak 1 save files in that archive");
     return;
   }
-  if (!confirmReplace(entries.length)) return;
-  await writeOpfs("pending-import.tar", await file.arrayBuffer());
+  importFile = file;
+  $("importtext").textContent =
+    `Replace the current saves and settings with ${entries.length} file(s) from ${file.name}? The game restarts.`;
+  $("importconfirm").hidden = false;
+};
+$("importcancel").onclick = () => {
+  importFile = null;
+  $("importconfirm").hidden = true;
+};
+$("importyes").onclick = async () => {
+  if (!importFile) return;
+  await writeOpfs("pending-import.tar", await importFile.arrayBuffer());
   location.reload();
 };
-function confirmReplace(n) {
-  // a native confirm() would freeze the game's threads waiting on this one
-  return window.gkImportConfirmed || (savesEl.textContent =
-    `saves: import ${n} file(s)? This replaces the current ones. Click Import again to confirm.`,
-    (window.gkImportConfirmed = true), false);
-}
 
 async function applyPendingImport() {
   const f = await readOpfs("pending-import.tar");
@@ -398,5 +515,5 @@ async function applyPendingImport() {
   }
   await (await navigator.storage.getDirectory()).removeEntry("pending-import.tar");
   await saveIndexFile();
-  savesEl.textContent = `saves: imported ${n} file(s)`;
+  toast(`Imported ${n} file(s)`);
 }
