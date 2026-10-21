@@ -291,8 +291,20 @@ struct FramePacer {
 struct FrameStats {
   bool enabled = std::getenv("GK_FRAME_STATS") != nullptr;
   double window_start = -1, last_frame = -1, max_gap = 0, gap_sum = 0;
+  // time inside Display::render (the renderer's GL calls), to tell a slow browser WebGL from slow
+  // game code: the EE's frame waits for the renderer, so either shows as a long kernel dispatch
+  double render_sum = 0, render_max = 0;
   int frames = 0, refresh_frames = 0, in_refresh_frames = 0, slow_gaps = 0, chain_timeouts = 0,
-      refresh_gaps_at_start = 0;
+      refresh_gaps_at_start = 0, slow_renders = 0;
+
+  void rendered(double ms) {
+    if (!enabled) {
+      return;
+    }
+    render_sum += ms;
+    render_max = std::max(render_max, ms);
+    slow_renders += ms > 16;
+  }
 
   void frame(double now, const FramePacer& pacer) {
     if (!enabled) {
@@ -314,10 +326,12 @@ struct FrameStats {
     if (now - window_start >= 10000) {
       lg::info(
           "[frames] {:.1f} s: {} frames ({} on refreshes, {} inside rAF), mean gap {:.2f} ms, "
-          "max {:.1f} ms, {} gaps > 25 ms, {} without a chain, {} refresh gaps > 25 ms",
+          "max {:.1f} ms, {} gaps > 25 ms, {} without a chain, {} refresh gaps > 25 ms; render "
+          "mean {:.2f} ms, max {:.1f} ms, {} > 16 ms",
           (now - window_start) / 1000, frames, refresh_frames, in_refresh_frames,
           frames > 1 ? gap_sum / (frames - 1) : 0.0, max_gap, slow_gaps, chain_timeouts,
-          pacer.refresh_gaps - refresh_gaps_at_start);
+          pacer.refresh_gaps - refresh_gaps_at_start, frames ? render_sum / frames : 0.0,
+          render_max, slow_renders);
       const int gaps = pacer.refresh_gaps;
       *this = FrameStats();
       window_start = now;
@@ -338,8 +352,10 @@ void render_if_due(double now) {
   g_frame_stats.frame(now, g_pacer);
   g_pacer.rendered();
   if (Display::GetMainDisplay()) {
+    const double render_start = emscripten_get_now();
     Display::GetMainDisplay()->render();
     webgl_compat::log_errors();
+    g_frame_stats.rendered(emscripten_get_now() - render_start);
   }
   // the renderer may have changed the swap interval
   use_immediate_timing();
