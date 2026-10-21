@@ -186,17 +186,6 @@ void iop_runner(SystemThreadInterface& iface) {
 }
 
 #ifdef WASM_DISPLAY
-// The browser frame loop's ticks come from setImmediate timing (scheduler.postTask). SDL sets its
-// own timing (rAF for vsync, which never fires in a worker without a visible canvas) when the
-// renderer changes the swap interval, so this is checked around every frame.
-void use_immediate_timing() {
-  int mode, value;
-  emscripten_get_main_loop_timing(&mode, &value);
-  if (mode != EM_TIMING_SETIMMEDIATE) {
-    emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
-  }
-}
-
 // The display's refreshes: a requestAnimationFrame chain in the render thread's worker (rAF in a
 // dedicated worker follows the page's frames, and stops while the page is hidden) calls
 // gk_refresh, below, with each refresh's timestamp. (A plain function: clang-format breaks "=>".)
@@ -259,6 +248,10 @@ struct FramePacer {
       pending_since = now;
       pending_refresh_time = time;
     }
+  }
+
+  bool refreshes_coming(double now) const {
+    return !clock_only && now - last_refresh_seen < kRefreshLostMs;
   }
 
   bool due(double now) {
@@ -344,6 +337,29 @@ struct FrameStats {
 FramePacer g_pacer;
 FrameStats g_frame_stats;
 
+/*!
+ * The main loop's timing. Immediate ticks (setImmediate timing: scheduler.postTask, back to back)
+ * only while they are needed: without refreshes (frames on the 60 Hz clock) and while a refresh's
+ * frame waits for a late chain. Otherwise the refreshes drive the frames and the loop ticks on a
+ * slow timer. Back-to-back postTask allocates a task and a promise per tick, and Firefox's garbage
+ * and cycle collectors then paused the render thread for 200-500 ms about once a second, which the
+ * EE waited out in gl_sync_path (CLAUDE.MD Log 2026-10-21). SDL also sets its own timing (rAF for
+ * vsync) when the renderer changes the swap interval, so this runs around every frame.
+ */
+void update_loop_timing(double now) {
+  // rounded up to the OS timer tick in a worker (15.6 ms on Windows); it only notices refreshes
+  // stopping (then immediate ticks take over within kRefreshLostMs)
+  constexpr int kIdleTickMs = 10;
+  const bool immediate = !g_pacer.refreshes_coming(now) || g_pacer.pending_since >= 0;
+  int mode, value;
+  emscripten_get_main_loop_timing(&mode, &value);
+  if (immediate && mode != EM_TIMING_SETIMMEDIATE) {
+    emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
+  } else if (!immediate && (mode != EM_TIMING_SETTIMEOUT || value != kIdleTickMs)) {
+    emscripten_set_main_loop_timing(EM_TIMING_SETTIMEOUT, kIdleTickMs);
+  }
+}
+
 // one frame, if one is due: from the rAF callback or the main loop
 void render_if_due(double now) {
   if (MasterExit != RuntimeExitStatus::RUNNING || !g_pacer.due(now)) {
@@ -357,8 +373,6 @@ void render_if_due(double now) {
     webgl_compat::log_errors();
     g_frame_stats.rendered(emscripten_get_now() - render_start);
   }
-  // the renderer may have changed the swap interval
-  use_immediate_timing();
 }
 #endif
 }  // namespace
@@ -371,6 +385,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void gk_refresh(double time) {
   g_pacer.in_refresh = true;
   render_if_due(now);
   g_pacer.in_refresh = false;
+  // a frame still due here waits for its chain: immediate ticks render it when it arrives
+  update_loop_timing(now);
 }
 #endif
 
@@ -424,11 +440,12 @@ RuntimeExitStatus exec_runtime(GameLaunchOptions game_options, int argc, const c
             // Paced by FramePacer, not by the main loop's timing: in a worker a browser rounds
             // setTimeout up to the OS timer tick (15.6 ms on Windows: a 60 Hz timeout ran at
             // 32 Hz), and the main loop's rAF timing would stall the game while the page is
-            // hidden. Ticks come from scheduler.postTask (setImmediate timing): they render a
-            // chain that came late for its refresh, and the clock-paced frames. This replaces the
-            // renderer's frame limiter, which sleeps.
-            use_immediate_timing();
-            render_if_due(emscripten_get_now());
+            // hidden. Immediate ticks render a chain that came late for its refresh, and the
+            // clock-paced frames; update_loop_timing slows the loop down when neither is
+            // waiting. This replaces the renderer's frame limiter, which sleeps.
+            const double now = emscripten_get_now();
+            render_if_due(now);
+            update_loop_timing(now);
             return;
           }
           emscripten_cancel_main_loop();
