@@ -88,7 +88,8 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
       pattern) executed in Node. No game data needed.
 - [x] M3 Headless runtime under Emscripten (GL and audio stubbed) boots until `KERNEL.CGO` is linked
       and the kernel loop runs.
-- [ ] M4 Asyncify suspend/resume: `ENGINE`/`GAME` load and processes tick headless.
+- [x] M4 Asyncify suspend/resume: `ENGINE`/`GAME` load and processes tick headless (ticked by the
+      owner 2026-10-21: the game runs in the browser).
       Slice 1 done: kernel suspend/resume, go and throw work (Jak1KernelTest cases pass in wasm).
       Slice 2 done: `ENGINE.CGO` builds for wasm. Next: mips2c functions in the wasm runtime, then
       load ENGINE headless; `GAME.CGO` needs the decompiler's `tpage-dir.txt` (`task extract`).
@@ -96,8 +97,8 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - [x] M6 Sandover, audio, Gamepad API, performance: Sandover playable in Chrome with Jak and
       Daxter drawn, keyboard and Gamepad API input, 989snd audio through Web Audio, 60 fps with
       page focus. Left for later: renderer cost when the page is unfocused, an IOP that doesn't
-      spin while idle, a check with a physical gamepad and by ear (verified with a scripted
-      Gamepad API object and the output's signal level).
+      spin while idle. The owner played with a PS5 controller (works; R2 was the debug fly control
+      of the `-debug` boot) and in Firefox (2026-10-21).
 - [ ] M7 Browser shell + hosting: loading screen, OPFS cache, Pages + Worker + private R2 behind
       Cloudflare Access, save cloud sync and export/import.
       Slice 1 done: game files fetched lazily from `/data/` (WasmFS fetch backend), no preload.
@@ -106,6 +107,9 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
       forged-token requests get the Access login on every path, version previews don't exist.
       Slice 3: OPFS cache of the game files through a service worker (`wasm/web/data_sw.js`),
       verified in Firefox locally, deployed 2026-10-20 (version 10a31d1c).
+      Slice 4 (local, not deployed): saves and settings in OPFS, cloud sync through the Worker's
+      `/saves/*` (bucket `jak-saves`), export/import as .tar, loading screen, title-screen boot by
+      default (`wasm/web/page.js`).
 
 ### M3 plan
 
@@ -245,3 +249,4 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
 - 2026-10-21: Frame pacing (the owner's "freeze for 1-2 frames about every second"): gk_web rendered on a 60 Hz clock (postTask ticks), the page presents on the display's refresh, so the two beat (59.94 Hz, jitter): about once a second a refresh got no new frame or two. Now `FramePacer` (runtime_wasm.cpp) renders once per display refresh, at most 60/s (rAF timestamps, so a refresh noticed late doesn't make the next one look too close), and the EE's chain is polled (`Gfx::chain_ready`, try_lock) instead of `render_game_frame` blocking up to 40 ms (0 ms under Emscripten; 40 ms timeout kept in the pacer). Without refreshes (hidden page, the desktop pane) it falls back to the clock.
 - 2026-10-21: With an OffscreenCanvas, a frame drawn in a task after the worker's rAF callback is committed with the next animation frame, and the worker's rAF waits for it: rendering "right after" rAF from the postTask loop ran at ~25 fps. So a worker rAF chain (EM_JS) calls `gk_refresh` (EMSCRIPTEN_KEEPALIVE) and renders inside the callback when the chain is there; only late chains render from the main loop. clang-format turns `=>` in EM_JS bodies into `= >`: use `function`.
 - 2026-10-21: Pacing tools: `?stats=1` prints a `[frames]` line every 10 s (frames, how many on refreshes / inside rAF, mean and max gap, gaps > 25 ms, frames without a chain, rAF gaps > 25 ms); `?pacing=clock` restores the old clock pacing for A/B. The desktop pane is GPU-bound (~29 ms/frame) and delivers rAF intermittently: both modes ~35 fps there, refresh mode max gap 44-58 ms vs 59 ms. The 60 Hz check needs a real browser.
+- 2026-10-21: M7 slice 4 — saves (decision 11). `main_web.cpp` mounts `wasmfs_create_opfs_backend()` at `/user`; that backend's root is the origin's OPFS root, so the game's settings and memory card are OPFS files `OpenGOAL/jak1/{settings,saves}/...` next to the file cache's `data-cache/`. `wasm/web/page.js` (moved out of shell.html, shipped like data_sw.js) syncs them with the Worker's `/saves/*` (bucket `jak-saves`, keys `<email from the verified Access JWT>/<path>`, customMetadata mtime, PUT older than stored → 409): pull newer files in preRun before the game opens anything, push files whose lastModified changed every 10 s and when the page is hidden. OPFS can't set lastModified, so `save-sync.json` keeps per file the version time it holds and the lastModified it had then. Export/import is a ustar .tar written/read in the page; an import is stored as `pending-import.tar` and applied on the next start (the running game holds its files). The page boots `-boot -fakeiso` (title screen) by default: R2 held in the `-debug` boot is cheat mode's fly control (target.gc, main.gc). Loading screen over the canvas until the log shows a level's first display command or the blackout ending.

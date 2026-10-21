@@ -77,7 +77,12 @@ int main(int argc, char** argv) {
     lg::error("could not find the jak-project folder");
     return 1;
   }
-  // settings and saves in memory for now (OPFS is decision 11)
+  // settings and saves persist in the browser (decision 11): /user is the origin's OPFS root, so
+  // they are OPFS files OpenGOAL/jak1/{saves,settings}/..., which the page syncs and exports
+  // (wasm/web/page.js). Falls back to memory without OPFS.
+  if (wasmfs_create_directory("/user", 0777, wasmfs_create_opfs_backend()) != 0) {
+    lg::warn("no OPFS: settings and saves are lost when the page closes");
+  }
   file_util::override_user_config_dir("/user", true);
 
   GameLaunchOptions game_options;

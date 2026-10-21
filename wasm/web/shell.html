@@ -3,132 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenGOAL Web</title>
+<title>Jak and Daxter</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin: 0; background: #000; color: #ccc; font: 12px monospace; }
-  #canvas { display: block; width: 640px; height: 480px; background: #111; }
-  #log { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 0; padding: 4px; }
-  #cache { padding: 2px 4px; color: #8a8; }
+  body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; }
+  #stage { position: relative; width: 640px; height: 480px; }
+  #canvas { display: block; width: 640px; height: 480px; background: #000; }
+  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+             justify-content: center; gap: 14px; background: #000; }
+  #overlay[hidden] { display: none; }
+  #overlay .title { font-size: 26px; color: #e8b04a; letter-spacing: 1px; }
+  #overlay-status { color: #999; min-height: 1.2em; }
+  #overlay .spinner { width: 28px; height: 28px; border: 3px solid #333; border-top-color: #e8b04a;
+                      border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 4px; width: 632px; }
+  #bar button { background: #222; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 3px 8px;
+                font: inherit; cursor: pointer; }
+  #bar button:hover { border-color: #888; }
+  #saves, #cache { color: #8a8; }
+  #bar .spacer { flex: 1; }
+  #log { white-space: pre-wrap; max-height: 40vh; overflow: auto; margin: 0; padding: 4px;
+         font: 12px monospace; }
 </style>
 </head>
 <body>
-<!-- the runtime transfers this canvas to its main pthread (OffscreenCanvas) -->
-<canvas id="canvas" width="640" height="480" tabindex="-1"></canvas>
-<div id="cache"></div>
-<pre id="log"></pre>
-<script>
-  // runtime arguments: ?args=-fakeiso+-debug+-nosound (kernel only). Default: boot the game in
-  // debug mode (Sandover), with sound.
-  const params = new URLSearchParams(location.search);
-  const logEl = document.getElementById("log");
-  // the whole log (window.gkLog); the page shows its end
-  const lines = (window.gkLog = []);
-  // WebGL messages are kept apart, the game's log scrolls them away (inspect window.webglLog)
-  window.webglLog = [];
-  // A pthread's print waits until this thread has handled it (Emscripten proxies stdout writes
-  // synchronously), so printing must be cheap: the page is redrawn at most every 100 ms.
-  let redraw = null;
-  const show = (text) => {
-    if (/WebGL/.test(text) && window.webglLog.length < 200) window.webglLog.push(text);
-    lines.push(text);
-    if (lines.length > 100000) lines.splice(0, 50000);
-    redraw ??= setTimeout(() => {
-      redraw = null;
-      logEl.textContent = lines.slice(-400).join("\n");
-      logEl.scrollTop = logEl.scrollHeight;
-    }, 100);
-  };
-  var Module = {
-    arguments: (params.get("args") || "-boot -fakeiso -debug").split(" ").filter((a) => a),
-    canvas: document.getElementById("canvas"),
-    // the game's output stays on the page: the console keeps the browser's own messages (WebGL)
-    print: (text) => show(text),
-    printErr: (text) => show(text),
-    // the game starts once data_sw.js controls the page, so its threads' fetches go through it
-    preRun: [() => {
-      addRunDependency("data-cache");
-      startDataCache().finally(() => removeRunDependency("data-cache"));
-      // ?stats=1: a frame timing summary in the log every 10 s; ?pacing=clock: frames on a 60 Hz
-      // clock instead of the display's refreshes, to compare (wasm/runtime_wasm.cpp, FramePacer)
-      if (typeof ENV == "object") {
-        if (params.get("stats") === "1") ENV.GK_FRAME_STATS = "1";
-        if (params.get("pacing") === "clock") ENV.GK_FRAME_PACING = "clock";
-      }
-    }],
-  };
-
-  // OPFS cache of the game files (M7): data_sw.js answers /data/ from it; this page fills it in
-  // the background, one file at a time, streamed to disk. ?cache=0 turns it off (unregisters).
-  const cacheEl = document.getElementById("cache");
-  async function startDataCache() {
-    if (!("serviceWorker" in navigator) || !navigator.storage?.getDirectory) {
-      cacheEl.textContent = "cache: not supported by this browser";
-      return;
-    }
-    if (params.get("cache") === "0") {
-      for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
-      cacheEl.textContent = "cache: off";
-      return;
-    }
-    try {
-      await navigator.serviceWorker.register("data_sw.js");
-      await navigator.serviceWorker.ready;
-      if (!navigator.serviceWorker.controller) {
-        // first visit: the worker claims the page when it activates (never wait for ever)
-        await Promise.race([
-          new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", r, { once: true })),
-          new Promise((r) => setTimeout(r, 5000)),
-        ]);
-      }
-      if (!navigator.serviceWorker.controller) throw new Error("service worker not in control");
-      // ask the browser not to evict the cache under storage pressure
-      navigator.storage.persist?.();
-      // after the first level has had the network to itself
-      setTimeout(() => fillDataCache().catch((e) => (cacheEl.textContent = `cache: ${e.message}`)), 20000);
-    } catch (e) {
-      cacheEl.textContent = `cache: ${e.message}`;
-    }
-  }
-
-  async function fillDataCache() {
-    const res = await fetch("data/manifest.txt", { cache: "no-store" });
-    if (!res.ok) throw new Error(`manifest: HTTP ${res.status}`);
-    const entries = (await res.text()).split("\n").map((l) => l.trim().split(" "))
-      .filter(([path, , md5]) => path && md5).map(([path, size, md5]) => ({ path, size: Number(size), md5 }));
-    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("data-cache", { create: true });
-    const have = new Map();
-    for await (const [name, h] of dir.entries()) {
-      if (h.kind === "file") have.set(name, (await h.getFile()).size);
-    }
-    const total = entries.reduce((n, e) => n + e.size, 0);
-    let done = entries.filter((e) => have.get(e.md5) === e.size);
-    let bytes = done.reduce((n, e) => n + e.size, 0);
-    const status = () => (cacheEl.textContent =
-      `cache: ${done.length}/${entries.length} files, ${(bytes / 2 ** 20).toFixed(0)}/${(total / 2 ** 20).toFixed(0)} MB`);
-    status();
-    for (const e of entries) {
-      if (have.get(e.md5) === e.size) continue;
-      // no-store: the HTTP cache would keep a second copy
-      const r = await fetch(`data/${e.path}`, { cache: "no-store" });
-      if (!r.ok) throw new Error(`${e.path}: HTTP ${r.status}`);
-      const part = await dir.getFileHandle(`${e.md5}.part`, { create: true });
-      await r.body.pipeTo(await part.createWritable());
-      if ((await part.getFile()).size !== e.size) throw new Error(`${e.path}: wrong size`);
-      await part.move(e.md5);
-      have.set(e.md5, e.size);
-      done.push(e);
-      bytes += e.size;
-      status();
-    }
-    // versions no longer in the manifest, and interrupted downloads
-    const keep = new Set(entries.map((e) => e.md5).concat("manifest.txt"));
-    for (const name of have.keys()) {
-      if (!keep.has(name)) await dir.removeEntry(name);
-    }
-    cacheEl.textContent += " (complete)";
-  }
-</script>
+<div id="stage">
+  <!-- the runtime transfers this canvas to its main pthread (OffscreenCanvas) -->
+  <canvas id="canvas" width="640" height="480" tabindex="-1"></canvas>
+  <div id="overlay">
+    <div class="title">Jak and Daxter</div>
+    <div class="spinner"></div>
+    <div id="overlay-status">Starting</div>
+  </div>
+</div>
+<div id="bar">
+  <span id="saves">saves: …</span>
+  <button id="export" title="Download the saves and settings as a .tar">Export saves</button>
+  <button id="import" title="Replace the saves and settings from a .tar (applied on reload)">Import saves</button>
+  <input id="importfile" type="file" accept=".tar,application/x-tar" hidden>
+  <span class="spacer"></span>
+  <span id="cache"></span>
+  <button id="logbtn">Log</button>
+</div>
+<pre id="log" hidden></pre>
+<!-- wasm/web/page.js: arguments, log, loading screen, file cache, saves -->
+<script src="page.js"></script>
 {{{ SCRIPT }}}
 </body>
 </html>

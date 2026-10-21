@@ -39,15 +39,16 @@ owner's custom domain jak.anomandoris.com, behind the same Access policy.
    unauthenticated/forged requests all get the Access login). Signed in, Chrome boots to Geyser
    Rock from R2 (~12 s from mount to the first level frame). Watch for Access session expiry
    mid-game.
-2. M7: check a second visit on the deployed site loads with no /data/ downloads (cache complete).
-3. M7: loading screen in `wasm/web/shell.html`; saves on WasmFS OPFS + `/saves/*` sync in the
-   Worker (decision 11, `kmemcard.cpp`, `wasmfs_create_opfs_backend` at `/user`).
+2. M7 slice 4 (saves in OPFS + `/saves/*` sync + export/import, loading screen, title-screen boot,
+   `wasm/web/page.js`) is committed and tested locally with wrangler dev, not deployed. Deploy:
+   create the private bucket `jak-saves`, then `build_site.sh` + `wrangler deploy` (owner's OK).
+   Then save from the game (new game → memory card) on one machine and load it on another.
+3. M7: check a second visit on the deployed site loads with no /data/ downloads (cache complete).
 
 ## Known broken / open questions
-- M4 is still unticked in CLAUDE.MD although ENGINE and GAME load and tick headless (Log
-  2026-10-18/19): question for the owner whether to tick it.
+- Untested: a real memory-card save from gameplay (settings files went through the same path).
 - Left from M6: renderer cost when the page is unfocused (~47 ms frames), the IOP thread spinning
-  while idle (`IOP::wait_run_iop`), a check with a physical gamepad and by ear.
+  while idle (`IOP::wait_run_iop`). A PS5 pad and Firefox were checked by the owner.
 - MSAA off in the web build; multi-draw is a loop (no `WEBGL_multi_draw`).
 - Harness: `wasm/tools` deps (`npm ci`, `npx playwright install chromium`) need the owner's OK;
   `gl-audit.mjs` does not run on this branch; `capture.mjs` has no frame hook (`window.__jak.frame`

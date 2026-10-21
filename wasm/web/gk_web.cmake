@@ -135,13 +135,14 @@ target_link_options(gk_web PRIVATE
     "SHELL:--pre-js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js"
     "SHELL:--shell-file ${CMAKE_CURRENT_LIST_DIR}/shell.html")
 set_target_properties(gk_web PROPERTIES SUFFIX ".html")
-# the service worker of the OPFS file cache, next to gk_web.html (its scope is the page's folder)
+# next to gk_web.html: the page's script, and the service worker of the OPFS file cache (its scope
+# is the page's folder)
 add_custom_command(TARGET gk_web POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/data_sw.js
-                           $<TARGET_FILE_DIR:gk_web>/data_sw.js)
+                           ${CMAKE_CURRENT_LIST_DIR}/page.js $<TARGET_FILE_DIR:gk_web>)
 # relink (repack the preloaded files) when a shader changes
 file(GLOB WEB_SHADERS CONFIGURE_DEPENDS ${OPENGL}/shaders/*)
 set_property(TARGET gk_web APPEND PROPERTY LINK_DEPENDS
              ${CMAKE_CURRENT_LIST_DIR}/../goal_modules.js ${CMAKE_CURRENT_LIST_DIR}/web_pre.js
              ${CMAKE_CURRENT_LIST_DIR}/shell.html ${CMAKE_CURRENT_LIST_DIR}/data_sw.js
-             ${WEB_SHADERS})
+             ${CMAKE_CURRENT_LIST_DIR}/page.js ${WEB_SHADERS})

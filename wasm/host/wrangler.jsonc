@@ -14,7 +14,12 @@
     // the Worker checks Access and adds COOP/COEP on every request, static files included
     "run_worker_first": true
   },
-  "r2_buckets": [{ "binding": "DATA", "bucket_name": "jak-data" }],
+  "r2_buckets": [
+    // game files, read-only (upload_data.sh)
+    { "binding": "DATA", "bucket_name": "jak-data" },
+    // each user's saves and settings, under <email>/ (decision 11)
+    { "binding": "SAVES", "bucket_name": "jak-saves" }
+  ],
   // The workers.dev address, on since Access protects the Worker (all traffic). Previews stay off.
   "workers_dev": true,
   "preview_urls": false,
