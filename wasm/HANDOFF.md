@@ -40,9 +40,9 @@ owner's custom domain jak.anomandoris.com, behind the same Access policy.
    Rock from R2 (~12 s from mount to the first level frame). Watch for Access session expiry
    mid-game.
 2. M7 slice 4 (saves in OPFS + `/saves/*` sync + export/import, loading screen, title-screen boot,
-   `wasm/web/page.js`) is committed and tested locally with wrangler dev, not deployed. Deploy:
-   create the private bucket `jak-saves`, then `build_site.sh` + `wrangler deploy` (owner's OK).
-   Then save from the game (new game → memory card) on one machine and load it on another.
+   `wasm/web/page.js`) is deployed (jak-web e8741fc4, private bucket `jak-saves` created; both
+   hostnames still locked). Next: save from the game (new game → memory card) on one machine and
+   load it on another.
 3. M7: check a second visit on the deployed site loads with no /data/ downloads (cache complete).
 
 ## Known broken / open questions

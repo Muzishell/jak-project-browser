@@ -107,9 +107,10 @@ either stub those load triggers (`BEA`, `JUN`, `MIS`) or include them.
       forged-token requests get the Access login on every path, version previews don't exist.
       Slice 3: OPFS cache of the game files through a service worker (`wasm/web/data_sw.js`),
       verified in Firefox locally, deployed 2026-10-20 (version 10a31d1c).
-      Slice 4 (local, not deployed): saves and settings in OPFS, cloud sync through the Worker's
-      `/saves/*` (bucket `jak-saves`), export/import as .tar, loading screen, title-screen boot by
-      default (`wasm/web/page.js`).
+      Slice 4: saves and settings in OPFS, cloud sync through the Worker's `/saves/*` (private
+      bucket `jak-saves`), export/import as .tar, loading screen, title-screen boot by default
+      (`wasm/web/page.js`); deployed 2026-10-21 (version e8741fc4), both hostnames still locked
+      (90 unauthenticated/forged requests incl. PUT /saves/ all got the Access login).
 
 ### M3 plan
 
