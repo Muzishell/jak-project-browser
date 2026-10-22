@@ -1,8 +1,27 @@
 # Full game in the browser: strategy (proposed M8)
 
 M1–M7 delivered the first playable (title, intro, Geyser Rock, Sandover) on the hosted site. This
-is the plan to make the whole of Jak 1 playable, smoothly, in Chrome and Firefox. Nothing here is
-started; each phase ends with something the owner can check.
+is the plan to make the whole of Jak 1 playable, smoothly, in Chrome and Firefox. Each phase ends
+with something the owner can check.
+
+## Progress
+
+- **Forbidden Jungle + Misty Island (2026-10-22).** Sweep object
+  `test/goalc/source_templates/kernel/sweep-levels.gc`, run with
+  `-boot -fakeiso -debug -wasm-test <obj> <entry> 100000000` (headless or `gk_web`):
+  - `wasm-sweep-levels`: the 7 jungle/misty continue points;
+  - `wasm-sweep-discard`: leave Sandover 0–96 frames after Beach starts loading;
+  - `wasm-sweep-overlap`: ask for jungle + jungleb 0–96 frames into the jungle's load;
+  - `wasm-sweep-actors`: Jak 2 m above every actor of jungle, jungleb and misty for 0.5 s.
+
+  Every frame they check `*part-group-id-table*` (a bad entry is printed and cleared). They found
+  two loader bugs of the original game that slow `/data/` fetches make common and wasm turns into
+  traps; both are fixed in `level.gc` (wasm only, see the CLAUDE.MD Log). With the fixes, every
+  scan passes headless and in the browser, including the 721-actor tour. Still to check by
+  playing: the plant boss fight, the boat ride to Misty, the Misty races and cutscenes (Phase A item 4).
+- **Prefetch.** The page fills the OPFS cache with the current level first, then its neighbours,
+  then story order (`fillPriority` in `page.js`, re-sorted before each file). The game itself
+  already loads a level only when Jak nears it.
 
 ## What changes with the whole game
 

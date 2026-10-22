@@ -659,6 +659,20 @@
   "Unloads the level. This does not free the heap. The level will be made inactive and ready to be loaded some other time."
   (deactivate this)
   (when (!= (-> this status) 'inactive)
+    (#when (eq? INSTRUCTION_SET 'wasm)
+      ;; Discarded while loading (common in the browser, where files arrive slowly): finish the
+      ;; object being linked now, so the cleanup below undoes it. Otherwise load-continue resumes the
+      ;; link on the inactive level and its top-level registers particle groups in this heap after
+      ;; unlink-part-group-by-heap, the next level loads over them and a lookup by name traps.
+      ;; A texture copy left for load-continue (relocate-later) would run into the next level's heap
+      ;; and send it a spurious dgo-load-continue: drop it.
+      (when (-> this linking)
+        (until (nonzero? (link-resume)))
+        (set! (-> this linking) #f))
+      (when (and (-> *texture-relocate-later* memcpy)
+                 (>= (the-as int (-> *texture-relocate-later* dest)) (the-as int (-> this heap base)))
+                 (< (the-as int (-> *texture-relocate-later* dest)) (the-as int (-> this heap top-base))))
+        (set! (-> *texture-relocate-later* memcpy) #f)))
     ;; if we linked art group, unlink it.
     (when (or (= (-> this status) 'loaded) (= (-> this status) 'alive) (= (-> this status) 'active) (= (-> this status) 'login))
       (dotimes (s5-0 (-> this art-group art-group-array length))
@@ -1119,7 +1133,18 @@
             (a0-20 (set! s4-1 0))
             (v1-5 (set! s4-1 1)))
           (when (!= s4-1 -1)
-            (when (or s5-1 (not (check-busy *load-dgo-rpc*)))
+            (when (and (or s5-1 (not (check-busy *load-dgo-rpc*)))
+                       ;; wasm: one level loading at a time, as the loader assumes. The DGO RPC is
+                       ;; idle while a loading level links an object or logs in. A second level
+                       ;; added then cancels the first one's DGO and shares the linker with it (a
+                       ;; link resumed after it finished), or loses its bsp when the first one's
+                       ;; login ends (loading-level reset): killed, loaded again, its art groups
+                       ;; left in level-default. Slow /data/ fetches make this common: wait.
+                       (#cond
+                         ((eq? INSTRUCTION_SET 'wasm)
+                          (not (or (member (-> *level* level0 status) '(loading loading-bt loading-done login))
+                                   (member (-> *level* level1 status) '(loading loading-bt loading-done login)))))
+                         (#t #t)))
               (format 0 "Adding level ~A~%" (-> this want s4-1 name))
               (let ((s3-0 (level-get-for-use *level* (the-as symbol (-> this want s4-1 name)) 'loaded)))
                 (when (and s5-1 (-> this want s4-1 display?))

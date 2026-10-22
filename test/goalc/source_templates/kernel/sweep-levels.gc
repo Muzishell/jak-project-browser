@@ -1,0 +1,204 @@
+;; Level sweeps (wasm/docs/FULL-GAME.md, Phase A) for Forbidden Jungle (jungle, jungleb) and Misty
+;; Island (misty). For the wasm runtimes: -boot -fakeiso -debug -wasm-test <this object> <entry>
+;; 100000000, with <entry> one of
+;;   wasm-sweep-levels   each continue point in turn: wait until its level is active, run 8 s
+;;   wasm-sweep-discard  leave Sandover 0..96 frames after Beach starts loading
+;;   wasm-sweep-overlap  ask for jungle + jungleb 0..96 frames into the jungle's load
+;;   wasm-sweep-actors   Jak 2 m above every actor of the three levels, 0.5 s each
+;; Each prints "wasm-sweep: ..." lines; crashes and errors belong to the line printed last. A
+;; checker process prints level slot changes and any particle group outside GOAL memory.
+
+(define *wasm-sweep-points*
+  '("jungle-start" "jungle-tower" "misty-start" "misty-silo" "misty-bike" "misty-backside" "misty-silo2"))
+
+(defun wasm-sweep-level-active? ((cp continue-point))
+  (let ((lev (level-get *level* (-> cp level))))
+    (and lev (= (-> lev status) 'active))))
+
+;; Every frame, check the particle group table: an entry outside GOAL memory traps in wasm
+;; (lookup-part-group-pointer-by-name) where native reads garbage. Bad entries are printed with the
+;; level heap they are in, then cleared so the sweep goes on.
+(defun wasm-sweep-ptr-ok? ((p int))
+  (and (>= p #x10000) (< p #x8000000)))
+
+(defun wasm-sweep-heap-of ((p int))
+  (dotimes (i 2)
+    (let ((lev (-> *level* level i)))
+      (if (and (>= p (the int (-> lev heap base))) (< p (the int (-> lev heap top-base))))
+        (return (-> lev name)))))
+  'none)
+
+;; trace of the two level slots: name and status, printed when they change
+(define *wasm-sweep-slots* (new 'global 'array 'symbol 4))
+
+(defun wasm-sweep-trace-slots ()
+  (dotimes (i 2)
+    (let ((lev (-> *level* level i)))
+      (when (or (!= (-> lev name) (-> *wasm-sweep-slots* (* i 2)))
+                (!= (-> lev status) (-> *wasm-sweep-slots* (+ (* i 2) 1))))
+        (format 0 "wasm-sweep: slot ~D ~A ~A -> ~A ~A (linking ~A)~%"
+                i (-> *wasm-sweep-slots* (* i 2)) (-> *wasm-sweep-slots* (+ (* i 2) 1))
+                (-> lev name) (-> lev status) (-> lev linking))
+        (set! (-> *wasm-sweep-slots* (* i 2)) (-> lev name))
+        (set! (-> *wasm-sweep-slots* (+ (* i 2) 1)) (-> lev status))))))
+
+(defun wasm-sweep-check-part-groups ()
+  (wasm-sweep-trace-slots)
+  (let ((tbl *part-group-id-table*))
+    (dotimes (i (-> tbl length))
+      (let* ((g (-> tbl i))
+             (gi (the int g)))
+        (when (nonzero? gi)
+          (let ((name (if (wasm-sweep-ptr-ok? gi) (the int (-> g name)) 0)))
+            (when (or (not (wasm-sweep-ptr-ok? gi))
+                      (!= (-> g type) sparticle-launch-group)
+                      (not (wasm-sweep-ptr-ok? name)))
+              (format 0 "wasm-sweep: BAD part group ~D at #x~X (heap ~A) name #x~X (heap ~A)~%"
+                      i gi (wasm-sweep-heap-of gi) name (wasm-sweep-heap-of name))
+              (set! (-> tbl i) (the sparticle-launch-group 0))))))))
+  0)
+
+(defun wasm-sweep-spawn-checker ()
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (loop
+        (wasm-sweep-check-part-groups)
+        (suspend))
+      (none))))
+
+(defun wasm-sweep-wait-active ((lev-name symbol))
+  (until (let ((lev (level-get *level* lev-name))) (and lev (= (-> lev status) 'active)))
+    (suspend)))
+
+;; Warp to a continue point and wait (60 s at most) until its level is active. Call from a process.
+(defun wasm-sweep-goto ((s string))
+  (let ((cp (get-continue-by-name *game-info* s)))
+    (cond
+      ((not cp) (format 0 "wasm-sweep: ~S missing~%" s) #f)
+      (else
+       (format 0 "wasm-sweep: ~S start~%" s)
+       (start 'play cp)
+       (let ((t0 (-> *display* base-frame-counter)))
+         (until (or (wasm-sweep-level-active? cp)
+                    (>= (- (-> *display* base-frame-counter) t0) (seconds 60)))
+           (suspend))
+         (format 0 "wasm-sweep: ~S level ~A after ~D frames~%"
+                 s
+                 (if (wasm-sweep-level-active? cp) 'active 'TIMEOUT)
+                 (- (-> *display* base-frame-counter) t0)))
+       #t))))
+
+(defun wasm-sweep-levels ()
+  (wasm-sweep-spawn-checker)
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (wasm-sweep-wait-active 'village1)
+      (suspend-for (seconds 1))
+      (let ((n 0))
+        (dolist (name *wasm-sweep-points*)
+          (when (wasm-sweep-goto (the string (car name)))
+            (suspend-for (seconds 8))
+            (+! n 1)
+            (format 0 "wasm-sweep: ~S done~%" (car name))))
+        (format 0 "wasm-sweep: finished ~D points~%" n))
+      (none)))
+  0)
+
+;; Warp away while beach (village1's neighbour) is half loaded, waiting 0, 4, 8 ... frames after
+;; its load starts: its slot is discarded mid-load and reused by the jungle. Slow /data/ fetches
+;; make this common in the browser.
+(defun wasm-sweep-discard ()
+  (wasm-sweep-spawn-checker)
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (wasm-sweep-wait-active 'village1)
+      (let ((k 0))
+        (while (<= k 96)
+          (until (let ((lev (level-get *level* 'beach))) (and lev (!= (-> lev status) 'inactive)))
+            (suspend))
+          (dotimes (i k)
+            (suspend))
+          (let ((lev (level-get *level* 'beach)))
+            (format 0 "wasm-sweep: discard step ~D: beach ~A linking ~A~%"
+                    k (if lev (-> lev status) 'none) (if lev (-> lev linking) #f)))
+          (wasm-sweep-goto "jungle-start")
+          (suspend-for (seconds 2))
+          (wasm-sweep-goto "village1-hut")
+          (+! k 4)))
+      (format 0 "wasm-sweep: discard finished~%")
+      (none)))
+  0)
+
+;; Actor tour: from each continue point, put Jak 2 m above every actor of its level in turn for half
+;; a second, so each one is birthed, runs and draws (enemies may kill him: the tour goes on). One
+;; line per actor, so a crash belongs to the actor printed last.
+(define *wasm-sweep-tour* '(("jungle-start" jungle) ("jungle-tower" jungleb) ("misty-start" misty)))
+
+(defun wasm-sweep-actors ()
+  (wasm-sweep-spawn-checker)
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (wasm-sweep-wait-active 'village1)
+      (suspend-for (seconds 1))
+      (let ((total 0))
+        (dolist (stop *wasm-sweep-tour*)
+          (let ((cp-name (the string (car (car stop))))
+                (lev-name (the symbol (car (cdr (car stop))))))
+            (wasm-sweep-goto cp-name)
+            (suspend-for (seconds 2))
+            (let* ((lev (level-get *level* lev-name))
+                   (actors (if lev (-> lev bsp actors))))
+              (when (and actors (nonzero? actors))
+                (let ((n (-> actors length))
+                      (pos (new 'stack-no-clear 'vector)))
+                  (dotimes (i n)
+                    (when (= (-> lev status) 'active)
+                      (let ((a (-> actors data i actor)))
+                        (format 0 "wasm-sweep: tour ~A ~D/~D ~A~%" lev-name (+ i 1) n (res-lump-struct a 'name basic))
+                        (when *target*
+                          (vector+! pos (-> a extra trans) (new 'static 'vector :y 8192.0 :w 1.0))
+                          (set! (-> pos w) 1.0)
+                          (move-to-point! (-> *target* control) pos)
+                          (send-event *camera* 'teleport))
+                        (suspend-for (seconds 0.5))
+                        (+! total 1))))))
+              (format 0 "wasm-sweep: tour ~A done~%" lev-name))))
+        (format 0 "wasm-sweep: tour finished ~D actors~%" total))
+      (none)))
+  0)
+
+;; Warp to jungle-tower (jungle + jungleb) 0, 8, 16 ... frames after the jungle starts loading: the
+;; second level is wanted while the first is still loading (a respawn or a warp during a slow load).
+(defun wasm-sweep-overlap ()
+  (wasm-sweep-spawn-checker)
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (wasm-sweep-wait-active 'village1)
+      (suspend-for (seconds 1))
+      (let ((k 0))
+        (while (<= k 96)
+          (format 0 "wasm-sweep: overlap step ~D~%" k)
+          (start 'play (get-continue-by-name *game-info* "jungle-start"))
+          (let ((t0 (-> *display* base-frame-counter)))
+            (until (or (let ((lev (level-get *level* 'jungle))) (and lev (!= (-> lev status) 'inactive)))
+                       (>= (- (-> *display* base-frame-counter) t0) (seconds 30)))
+              (suspend)))
+          (dotimes (i k)
+            (suspend))
+          (wasm-sweep-goto "jungle-tower")
+          (suspend-for (seconds 2))
+          (wasm-sweep-goto "village1-hut")
+          (+! k 8)))
+      (format 0 "wasm-sweep: overlap finished~%")
+      (none)))
+  0)

@@ -17,7 +17,7 @@ link() { cp -l "$@" 2>/dev/null || cp "$@"; }
 link out/jak1-wasm/iso/* $dst/jak1-wasm/iso/
 link out/jak1/fr3/*.fr3 $dst/jak1/fr3/
 # test objects for -wasm-test (e.g. goto-training.o from test/goalc/source_templates/kernel)
-for f in goto-training goto-intro load-engine; do
+for f in goto-training goto-intro load-engine goto-vents sweep-levels; do
   [ -e out/jak1-wasm/obj/$f.o ] && link out/jak1-wasm/obj/$f.o $dst/jak1-wasm/obj/
 done
 
