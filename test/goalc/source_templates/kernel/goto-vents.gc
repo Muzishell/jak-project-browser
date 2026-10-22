@@ -1,0 +1,33 @@
+;; Blue eco vents after the Forbidden Jungle switch: complete jungle-eggtop (what the switch does),
+;; warp to jungle-start, then print every blue vent's state every 2 seconds.
+;; For the wasm runtimes: -boot -debug ... -wasm-test <this object> wasm-goto-vents <frames>
+
+(defun wasm-vent-print ((p process))
+  (when (type-type? (-> p type) ventblue)
+    (format 0 "wasm-vents: ~A state ~A dist ~M~%"
+            (-> p name)
+            (if (-> p state) (-> p state name) 'none)
+            (vector-vector-distance (-> (the process-drawable p) root trans) (target-pos 0))))
+  #f)
+
+(defun wasm-vents-report ()
+  (iterate-process-tree *active-pool* wasm-vent-print *null-kernel-context*)
+  0)
+
+(defun wasm-goto-vents ()
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (until (let ((lev (level-get *level* 'village1))) (and lev (= (-> lev status) 'active)))
+        (suspend))
+      (suspend-for (seconds 1))
+      (close-specific-task! (game-task jungle-eggtop) (task-status need-resolution))
+      (format 0 "wasm-vents: jungle-eggtop complete ~A~%" (task-complete? *game-info* (game-task jungle-eggtop)))
+      (start 'play (get-continue-by-name *game-info* "jungle-start"))
+      (suspend-for (seconds 8))
+      (dotimes (i 5)
+        (wasm-vents-report)
+        (suspend-for (seconds 2)))
+      (none)))
+  0)
