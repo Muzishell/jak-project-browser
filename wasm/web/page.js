@@ -60,6 +60,7 @@ function show(text) {
   lines.push(text);
   if (lines.length > 100000) lines.splice(0, 50000);
   loadingFromLog(text);
+  levelFromLog(text);
   redraw ??= setTimeout(drawLog, 100);
 }
 
@@ -88,6 +89,71 @@ function loadingFromLog(text) {
   }
 }
 setTimeout(loadingDone, 120000);
+
+// ---- where Jak is: the cache fetches the levels around him first --------------------------------
+// The game loads a level when Jak nears its border (its own streaming), and the WasmFS fetch
+// backend downloads a file on its first read. On a first visit that read waits on the network, so
+// the background fill (fillDataCache) takes the current level's neighbours before anything else.
+// Level name (as the game prints it) -> [DGO name, neighbours]. Its files: <DGO>.DGO/.VIS,
+// <name>.fr3, and the music/sound bank named after the level (8 characters, upper case).
+const LEVELS = {
+  training: ["TRA", ["village1"]],
+  village1: ["VI1", ["beach", "jungle", "misty", "training", "firecanyon"]],
+  beach: ["BEA", ["village1"]],
+  jungle: ["JUN", ["jungleb", "village1"]],
+  jungleb: ["JUB", ["jungle"]],
+  misty: ["MIS", ["village1"]],
+  firecanyon: ["FIC", ["village1", "village2"]],
+  village2: ["VI2", ["firecanyon", "sunken", "swamp", "rolling", "ogre"]],
+  sunken: ["SUN", ["sunkenb", "village2"]],
+  sunkenb: ["SUB", ["sunken"]],
+  swamp: ["SWA", ["village2"]],
+  rolling: ["ROL", ["village2"]],
+  ogre: ["OGR", ["village2", "village3"]],
+  village3: ["VI3", ["ogre", "snow", "maincave", "lavatube"]],
+  snow: ["SNO", ["village3"]],
+  maincave: ["MAI", ["village3", "darkcave", "robocave"]],
+  darkcave: ["DAR", ["maincave"]],
+  robocave: ["ROB", ["maincave"]],
+  lavatube: ["LAV", ["village3", "citadel"]],
+  citadel: ["CIT", ["lavatube", "finalboss"]],
+  finalboss: ["FIN", ["citadel"]],
+};
+const STORY = Object.keys(LEVELS);
+let currentLevel = null;
+function levelFromLog(text) {
+  const m = /Displaying level (\S+)/.exec(text);
+  if (m && LEVELS[m[1]]) currentLevel = m[1];
+}
+// music that isn't named after its level
+const EXTRA_MUSIC = { FISHGAME: "village1", OGREBOSS: "ogre" };
+// the level a game file belongs to, or null
+function levelOfFile(path) {
+  const base = path.split("/").pop();
+  const [stem, ext] = [base.replace(/\.[^.]*$/, ""), base.split(".").pop().toUpperCase()];
+  if (ext === "MUS" && EXTRA_MUSIC[stem]) return EXTRA_MUSIC[stem];
+  for (const [name, [dgo]] of Object.entries(LEVELS)) {
+    if ((ext === "DGO" || ext === "VIS") && stem === dgo) return name;
+    if (ext === "FR3" && stem === name) return name;
+    if ((ext === "MUS" || ext === "SBK") && stem === name.slice(0, 8).toUpperCase()) return name;
+  }
+  return null;
+}
+// lower first: code and small shared files, the current level and its neighbours, the other
+// levels in story order, cutscene streams, voices; unused files (demo, test level) last
+function fillPriority(path) {
+  const ext = path.split(".").pop().toUpperCase();
+  if (/VAGWAD/.test(path)) return 1000;
+  if (ext === "STR") return 900;
+  if (/(^|\/)(DEM\.|demo\.|test-zone\.|CREDITS\.)/.test(path) || path.includes("/obj/")) return 1100;
+  // title screen and intro: needed at the start of a new game
+  if (/(^|\/)(TIT\.|INT\.|title\.|intro\.)/.test(path)) return 5;
+  const level = levelOfFile(path);
+  if (!level) return 0;
+  if (level === currentLevel) return 10;
+  if (currentLevel && LEVELS[currentLevel][1].includes(level)) return 20;
+  return 100 + STORY.indexOf(level);
+}
 
 // ---- runtime ---------------------------------------------------------------------------------
 var Module = {
@@ -253,8 +319,11 @@ async function fillDataCache() {
     `${(bytes / 2 ** 20).toFixed(0)} of ${(total / 2 ** 20).toFixed(0)} MB kept (${done.length}/${entries.length} files)`,
     total ? bytes / total : 1);
   status();
-  for (const e of entries) {
-    if (have.get(e.md5) === e.size) continue;
+  const pending = entries.filter((e) => have.get(e.md5) !== e.size);
+  while (pending.length) {
+    // re-sorted before each file: Jak may have moved to another level meanwhile
+    pending.sort((a, b) => fillPriority(a.path) - fillPriority(b.path));
+    const e = pending.shift();
     // no-store: the HTTP cache would keep a second copy
     const r = await fetch(`data/${e.path}`, { cache: "no-store" });
     if (!r.ok) throw new Error(`${e.path}: HTTP ${r.status}`);
