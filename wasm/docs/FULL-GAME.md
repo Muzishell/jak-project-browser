@@ -19,6 +19,14 @@ with something the owner can check.
   traps; both are fixed in `level.gc` (wasm only, see the CLAUDE.MD Log). With the fixes, every
   scan passes headless and in the browser, including the 721-actor tour. Still to check by
   playing: the plant boss fight, the boat ride to Misty, the Misty races and cutscenes (Phase A item 4).
+- **All levels, Phase A (2026-10-23).** Group entries `wasm-sweep-g-beach`, `-village2`, `-sunken`,
+  `-ogre`, `-cave`, `-citadel` take every continue point of their levels from `level-info`, then
+  tour every actor; they run headless in parallel (six at once, ~5 min). `wasm-sweep-g-points` is
+  all 68 continue points of the 18 levels without the tour, for the browser. Results: headless,
+  65 points and 4,607 actor visits with no trap, no bad particle group, no timeout; in the browser
+  (headless Chromium on the WSL GPU) all 68 points reach the final boss after one IOP fix (a VAG
+  command spin, see the CLAUDE.MD Log). Not checked yet: what each level looks like (the headless
+  browser can't capture the game's canvas), and timing on a real browser's GPU.
 - **Prefetch.** The page fills the OPFS cache with the current level first, then its neighbours,
   then story order (`fillPriority` in `page.js`, re-sorted before each file). The game itself
   already loads a level only when Jak nears it.

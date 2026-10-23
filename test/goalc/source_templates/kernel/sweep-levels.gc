@@ -175,6 +175,86 @@
       (none)))
   0)
 
+;; Any group of levels: every continue point of each level (from its level-info), 4 s each, then
+;; the actor tour (0.3 s per actor) of each level from a continue point in it. The group is set by
+;; the entry (wasm-sweep-g-...) in *wasm-sweep-group* before the process starts.
+(define *wasm-sweep-group* '())
+;; #f: continue points only (wasm-sweep-g-points, the browser pass), 8 s each
+(define *wasm-sweep-tour?* #t)
+
+(defun wasm-sweep-tour-level ((lev-name symbol))
+  (let* ((lev (level-get *level* lev-name))
+         (actors (if lev (-> lev bsp actors)))
+         (count 0))
+    (when (and actors (nonzero? actors))
+      (let ((n (-> actors length))
+            (pos (new 'stack-no-clear 'vector)))
+        (dotimes (i n)
+          (when (= (-> lev status) 'active)
+            (let ((a (-> actors data i actor)))
+              (format 0 "wasm-sweep: tour ~A ~D/~D ~A~%" lev-name (+ i 1) n (res-lump-struct a 'name basic))
+              (when *target*
+                (vector+! pos (-> a extra trans) (new 'static 'vector :y 8192.0 :w 1.0))
+                (set! (-> pos w) 1.0)
+                (move-to-point! (-> *target* control) pos)
+                (send-event *camera* 'teleport))
+              (suspend-for (seconds 0.3))
+              (+! count 1))))))
+    (format 0 "wasm-sweep: tour ~A done, ~D actors~%" lev-name count)
+    count))
+
+(defun wasm-sweep-continue-in ((lev-name symbol))
+  "A continue point of the group whose level is lev-name."
+  (dolist (l *wasm-sweep-group*)
+    (dolist (c (-> (lookup-level-info (the symbol (car l))) continues))
+      (if (= (-> (the continue-point (car c)) level) lev-name)
+        (return (the continue-point (car c))))))
+  (the continue-point #f))
+
+(defun wasm-sweep-run-group ((levs pair))
+  (set! *wasm-sweep-group* levs)
+  (wasm-sweep-spawn-checker)
+  (process-spawn-function
+    process
+    (lambda :behavior process
+      ()
+      (wasm-sweep-wait-active 'village1)
+      (suspend-for (seconds 1))
+      (let ((points 0)
+            (actors 0))
+        (dolist (l *wasm-sweep-group*)
+          (dolist (c (-> (lookup-level-info (the symbol (car l))) continues))
+            (when (wasm-sweep-goto (-> (the continue-point (car c)) name))
+              (suspend-for (if *wasm-sweep-tour?* (seconds 4) (seconds 8)))
+              (format 0 "wasm-sweep: ~S done~%" (-> (the continue-point (car c)) name))
+              (+! points 1))))
+        (dolist (l (if *wasm-sweep-tour?* *wasm-sweep-group* '()))
+          (let ((cp (wasm-sweep-continue-in (the symbol (car l)))))
+            (cond
+              ((not cp) (format 0 "wasm-sweep: tour ~A: no continue point~%" (car l)))
+              (else
+               (wasm-sweep-goto (-> cp name))
+               (suspend-for (seconds 2))
+               (+! actors (wasm-sweep-tour-level (the symbol (car l))))))))
+        (format 0 "wasm-sweep: group finished, ~D points, ~D actors~%" points actors))
+      (none)))
+  0)
+
+(defun wasm-sweep-g-beach () (wasm-sweep-run-group '(training village1 beach firecanyon)))
+(defun wasm-sweep-g-village2 () (wasm-sweep-run-group '(village2 rolling)))
+(defun wasm-sweep-g-sunken () (wasm-sweep-run-group '(sunken sunkenb swamp)))
+(defun wasm-sweep-g-ogre () (wasm-sweep-run-group '(ogre village3 snow)))
+(defun wasm-sweep-g-cave () (wasm-sweep-run-group '(maincave darkcave robocave)))
+(defun wasm-sweep-g-citadel () (wasm-sweep-run-group '(lavatube citadel finalboss)))
+(defun wasm-sweep-g-points-village2 ()
+  (set! *wasm-sweep-tour?* #f)
+  (wasm-sweep-run-group '(village2 rolling)))
+(defun wasm-sweep-g-points ()
+  (set! *wasm-sweep-tour?* #f)
+  (wasm-sweep-run-group
+    '(training village1 beach jungle misty firecanyon village2 rolling sunken swamp ogre village3 snow
+      maincave robocave lavatube citadel finalboss)))
+
 ;; Warp to jungle-tower (jungle + jungleb) 0, 8, 16 ... frames after the jungle starts loading: the
 ;; second level is wanted while the first is still loading (a respawn or a warp during a slow load).
 (defun wasm-sweep-overlap ()

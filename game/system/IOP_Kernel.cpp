@@ -1,6 +1,8 @@
 #include "IOP_Kernel.h"
 
 #include <cstring>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/global_profiler/GlobalProfiler.h"
 #include "common/log/log.h"
@@ -458,6 +460,33 @@ bool IOP_Kernel::sif_busy(u32 id) {
   }
   ASSERT(found);
   sif_mtx.unlock();
+#ifdef __EMSCRIPTEN__
+  // wasm: an RPC busy for 20 s means the IOP is stuck (the EE spins on it): say once what each
+  // IOP thread is doing. Read without the IOP's lock; enough for a diagnosis.
+  static std::unordered_map<u32, steady_clock::time_point> busy_since;
+  static std::unordered_set<u32> dumped;
+  {
+    if (!rv) {
+      busy_since.erase(id);
+    } else if (!busy_since.count(id)) {
+      busy_since[id] = steady_clock::now();
+    } else if (!dumped.count(id) && steady_clock::now() - busy_since[id] > seconds(20)) {
+      dumped.insert(id);
+      static const char* states[] = {"run", "ready", "wait", "wait-suspend", "suspend", "dormant"};
+      static const char* waits[] = {"-", "sleep", "sema", "delay", "mbx", "event"};
+      lg::warn("[IOP] RPC {:#x} busy for 20 s; current thread {}", id,
+               _currentThread ? _currentThread->name : "none (kernel)");
+      for (auto& t : threads) {
+        lg::warn("[IOP]   {} pri {} {} {}", t.name, t.priority, states[(int)t.state],
+                 waits[(int)t.waitType]);
+      }
+      for (size_t i = 0; i < mbxs.size(); i++) {
+        lg::warn("[IOP]   mbx {} messages {} waiter {}", i, mbxs[i].messages.size(),
+                 mbxs[i].wait_thread ? mbxs[i].wait_thread->name : "-");
+      }
+    }
+  }
+#endif
   return rv;
 }
 

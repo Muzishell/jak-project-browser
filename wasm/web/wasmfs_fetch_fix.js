@@ -32,6 +32,31 @@ addToLibrary({
     '_wasmfs_fetch_get_chunk_size',
   ],
   _wasmfs_create_fetch_backend_js: async function(backend) {
+    // gk_web: every game file read waits on one of these requests, and a request that never
+    // settles would freeze the game for good. Say in the log when one is slow (10 s), abort it
+    // after 60 s and try again (3 attempts); the body is read inside the same watch.
+    async function watchedFetch(url, init, label, readBody) {
+      for (var attempt = 1; ; attempt++) {
+        var ctrl = new AbortController();
+        var t0 = performance.now();
+        var warn = setTimeout(() => err(`[data] ${label} ${url} still pending after 10 s (attempt ${attempt})`), 10000);
+        var abort = setTimeout(() => ctrl.abort(), 60000);
+        try {
+          var response = await fetch(url, Object.assign({}, init, {signal: ctrl.signal}));
+          var body = readBody && response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+          var ms = performance.now() - t0;
+          if (ms > 10000) err(`[data] ${label} ${url} took ${ms | 0} ms`);
+          return {response, body};
+        } catch (e) {
+          err(`[data] ${label} ${url} failed (${e.name}), attempt ${attempt} of 3`);
+          if (attempt >= 3) throw {status: 0};
+        } finally {
+          clearTimeout(warn);
+          clearTimeout(abort);
+        }
+      }
+    }
+
     // Get a promise that fetches the data and stores it in JS memory (if it has
     // not already been fetched).
     async function getFileRange(file, offset, len) {
@@ -54,7 +79,7 @@ addToLibrary({
       len ??= chunkSize;
       // In which chunk does the seeked range start?  E.g., 5-14 with chunksize 8 will start in chunk 0.
       if (!(file in wasmFS$JSMemoryRanges)) {
-        var fileInfo = await fetch(url, {method:'HEAD', headers:{'Range': 'bytes=0-'}});
+        var fileInfo = (await watchedFetch(url, {method:'HEAD', headers:{'Range': 'bytes=0-'}}, 'HEAD', false)).response;
         if (fileInfo.ok &&
             fileInfo.headers.has('Content-Length') &&
             fileInfo.headers.get('Accept-Ranges') == 'bytes' &&
@@ -68,11 +93,11 @@ addToLibrary({
           len = Math.min(len, size-offset);
         } else {
           // may as well/forced to download the whole file
-          var wholeFileReq = await fetch(url);
-          if (!wholeFileReq.ok) {
-            throw wholeFileReq;
+          var whole = await watchedFetch(url, {}, 'GET', true);
+          if (!whole.response.ok) {
+            throw whole.response;
           }
-          var wholeFileData = new Uint8Array(await wholeFileReq.arrayBuffer());
+          var wholeFileData = whole.body;
           wasmFS$JSMemoryRanges[file] = {
             size: wholeFileData.byteLength,
             chunks: [wholeFileData],
@@ -113,11 +138,11 @@ addToLibrary({
       var start = firstChunk * chunkSize;
       // We must fetch *up to* the last byte of the last chunk.
       var end = (lastChunk+1) * chunkSize;
-      var response = await fetch(url, {headers:{'Range': `bytes=${start}-${end-1}`}});
-      if (!response.ok) {
-        throw response;
+      var ranged = await watchedFetch(url, {headers:{'Range': `bytes=${start}-${end-1}`}}, `bytes ${start}-${end-1}`, true);
+      if (!ranged.response.ok) {
+        throw ranged.response;
       }
-      var bytes = new Uint8Array(await response.arrayBuffer());
+      var bytes = ranged.body;
       for (i = firstChunk; i <= lastChunk; i++) {
         wasmFS$JSMemoryRanges[file].chunks[i] = bytes.slice(i*chunkSize-start,(i+1)*chunkSize-start);
       }

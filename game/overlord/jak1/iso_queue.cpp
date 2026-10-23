@@ -353,6 +353,14 @@ VagCommand* GetVAGCommand() {
     }
 
     SignalSema(sSema);
+#ifdef __EMSCRIPTEN__
+    // wasm: vag_cmd_used has 32 bits for 64 commands, so with 32 pending there is no free bit while
+    // vag_cmd_cnt is still under the wait above, and this loop spun without yielding: the ISO
+    // thread that frees commands never ran again (PLAYThread spinning, the EE stuck on the sound
+    // RPCs). The ISO thread only falls that far behind when file reads are slow, as in the
+    // browser. Wait for it like above.
+    DelayThread(100);
+#endif
   }
 }
 
